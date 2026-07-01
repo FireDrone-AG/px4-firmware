@@ -168,6 +168,10 @@ fi
 /bin/echo "Looking for ncp5623c RGB LED"
 qshell rgbled_ncp5623c start -X -b 1 -f 400 -a 56
 
+# Auto detect the FireDrone ADS7828 thermistor board on J19 pins 4/5.
+/bin/echo "Looking for FireDrone ADS7828 thermistor board"
+qshell ads7828 start -X -b 1 -f 100
+
 # We do not change the following parameters but QGC will complain if they aren't
 # being reported as "used" by px4. "Touching" them accomplishes that.
 param touch SYS_AUTOCONFIG
