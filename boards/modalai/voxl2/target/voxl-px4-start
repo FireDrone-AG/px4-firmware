@@ -169,8 +169,16 @@ fi
 qshell rgbled_ncp5623c start -X -b 1 -f 400 -a 56
 
 # Auto detect the FireDrone ADS7828 thermistor board on J19 pins 4/5.
-/bin/echo "Looking for FireDrone ADS7828 thermistor board"
-qshell ads7828 start -X -b 1 -f 100
+# FIREDRONE_TEMP_CHANNELS is a comma-separated list of ADS7828 channels, for example:
+#   FIREDRONE_TEMP_CHANNELS=0,1
+#   FIREDRONE_TEMP_CHANNELS=0,1,2,3
+# Set it to an empty string to disable auto-start.
+if [ -n "$FIREDRONE_TEMP_CHANNELS" ]; then
+    /bin/echo "Looking for FireDrone ADS7828 thermistor board on channels $FIREDRONE_TEMP_CHANNELS"
+    qshell ads7828 start -X -b 1 -f 100 -c "$FIREDRONE_TEMP_CHANNELS"
+else
+    /bin/echo "FireDrone ADS7828 thermistor auto-start disabled"
+fi
 
 # We do not change the following parameters but QGC will complain if they aren't
 # being reported as "used" by px4. "Touching" them accomplishes that.

@@ -33,10 +33,65 @@
 
 #include "ads7828.h"
 
+#include <cstdlib>
 #include <cstring>
 
 #include <drivers/drv_adc.h>
+#include <px4_platform_common/getopt.h>
 #include <px4_platform_common/module.h>
+
+namespace
+{
+constexpr uint8_t ADS7828_CHANNEL_COUNT = 8;
+constexpr uint8_t ADS7828_DEFAULT_CHANNEL_MASK = (1u << 0) | (1u << 1);
+
+uint8_t channel_mask_from_count(int channel_count)
+{
+	if (channel_count <= 0) {
+		return 0;
+	}
+
+	if (channel_count >= ADS7828_CHANNEL_COUNT) {
+		return 0xFF;
+	}
+
+	return static_cast<uint8_t>((1u << channel_count) - 1u);
+}
+
+bool parse_channel_list(const char *arg, uint8_t &channel_mask)
+{
+	if (arg == nullptr || *arg == '\0') {
+		return false;
+	}
+
+	uint8_t parsed_mask = 0;
+	const char *cursor = arg;
+
+	while (*cursor != '\0') {
+		char *endptr = nullptr;
+		const long channel = strtol(cursor, &endptr, 10);
+
+		if (endptr == cursor || channel < 0 || channel >= ADS7828_CHANNEL_COUNT) {
+			return false;
+		}
+
+		parsed_mask |= static_cast<uint8_t>(1u << channel);
+
+		if (*endptr == '\0') {
+			break;
+		}
+
+		if (*endptr != ',') {
+			return false;
+		}
+
+		cursor = endptr + 1;
+	}
+
+	channel_mask = parsed_mask;
+	return parsed_mask != 0;
+}
+} // namespace
 
 void ADS7828::print_usage()
 {
@@ -45,20 +100,68 @@ void ADS7828::print_usage()
 	PRINT_MODULE_USAGE_COMMAND("start");
 	PRINT_MODULE_USAGE_PARAMS_I2C_SPI_DRIVER(true, false);
 	PRINT_MODULE_USAGE_PARAMS_I2C_ADDRESS(0x48);
+	PRINT_MODULE_USAGE_PARAM_INT('n', 2, 1, 8, "Number of thermistor channels starting at ADS7828 channel 0", true);
+	PRINT_MODULE_USAGE_PARAM_STRING('c', "0,1", "0,1,...,7",
+				       "Comma-separated ADS7828 channel list to sample. Overrides -n.", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 	PRINT_MODULE_USAGE_PARAM_COMMENT(
-		"Publishes raw ADS7828 channel 0/1 samples on adc_report. Use 'ads7828 status' to inspect converted TH1/TH2 temperatures.");
+		"Publishes raw ADS7828 samples on adc_report. By default channels 0 and 1 are sampled.");
 }
 
 extern "C" int ads7828_main(int argc, char *argv[])
 {
+	int ch;
 	using ThisDriver = ADS7828;
 	BusCLIArguments cli{true, false};
+	cli.custom1 = ADS7828_DEFAULT_CHANNEL_MASK;
+	bool channel_count_set = false;
+	uint8_t channel_count_mask = ADS7828_DEFAULT_CHANNEL_MASK;
+	bool channel_list_set = false;
+	uint8_t channel_list_mask = ADS7828_DEFAULT_CHANNEL_MASK;
 
 	cli.default_i2c_frequency = 100000;
 	cli.i2c_address = 0x48;
 
-	const char *verb = cli.parseDefaultArguments(argc, argv);
+	while ((ch = cli.getOpt(argc, argv, "n:c:")) != EOF) {
+		switch (ch) {
+		case 'n': {
+				const long channel_count = strtol(cli.optArg(), nullptr, 0);
+
+				if (channel_count < 1 || channel_count > ADS7828_CHANNEL_COUNT) {
+					PX4_ERR("invalid thermistor channel count: %ld", channel_count);
+					ThisDriver::print_usage();
+					return -1;
+				}
+
+				channel_count_mask = channel_mask_from_count(channel_count);
+				channel_count_set = true;
+				break;
+			}
+
+		case 'c': {
+				uint8_t channel_mask = 0;
+
+				if (!parse_channel_list(cli.optArg(), channel_mask)) {
+					PX4_ERR("invalid thermistor channel list: %s", cli.optArg());
+					ThisDriver::print_usage();
+					return -1;
+				}
+
+				channel_list_mask = channel_mask;
+				channel_list_set = true;
+				break;
+			}
+		}
+	}
+
+	if (channel_list_set) {
+		cli.custom1 = channel_list_mask;
+
+	} else if (channel_count_set) {
+		cli.custom1 = channel_count_mask;
+	}
+
+	const char *verb = cli.optArg();
 
 	if (!verb) {
 		ThisDriver::print_usage();

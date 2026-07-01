@@ -61,9 +61,8 @@ public:
 private:
 	static constexpr uint8_t kAddressMin = 0x48;
 	static constexpr uint8_t kAddressMax = 0x4B;
-	static constexpr uint8_t kTh1Channel = 0;
-	static constexpr uint8_t kTh2Channel = 1;
-	static constexpr uint8_t kPublishedChannelCount = 2;
+	static constexpr uint8_t kAdsChannelCount = 8;
+	static constexpr uint8_t kDefaultChannelMask = (1u << 0) | (1u << 1);
 	static constexpr uint8_t kSamplesPerReading = 4;
 	static constexpr uint16_t kAdsMaxCode = 4095;
 	static constexpr uint16_t kAdsClipThreshold = 4090;
@@ -92,16 +91,19 @@ private:
 	perf_counter_t _comms_errors;
 
 	adc_report_s _adc_report{};
-	ThermistorReading _last_th1{};
-	ThermistorReading _last_th2{};
+	ThermistorReading _last_readings[kAdsChannelCount] {};
+	uint8_t _configured_channels[kAdsChannelCount] {};
+	uint8_t _configured_channel_count{0};
+	uint8_t _channel_mask{kDefaultChannelMask};
 	bool _has_published{false};
 	uint32_t _error_count{0};
 
 	bool probe_address(uint8_t address);
+	void configure_channels_from_mask(uint8_t channel_mask);
 	void clear_adc_report_channels();
 	void prime_reference();
 	int read_raw_once(uint8_t channel, uint16_t &raw_out);
 	int read_raw_filtered(uint8_t channel, uint16_t &raw_out);
 	ThermistorReading read_thermistor(uint8_t channel);
-	void publish_adc_report(const ThermistorReading &th1, const ThermistorReading &th2, hrt_abstime timestamp);
+	void publish_adc_report(const ThermistorReading readings[kAdsChannelCount], hrt_abstime timestamp);
 };

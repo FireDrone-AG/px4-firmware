@@ -50,8 +50,9 @@ ADS7828::ADS7828(const I2CSPIDriverConfig &config) :
 	_cycle_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": single-sample")),
 	_comms_errors(perf_alloc(PC_COUNT, MODULE_NAME": comms errors"))
 {
-	static_assert(arraySize(adc_report_s::channel_id) >= kPublishedChannelCount,
-		      "ADS7828 publishes at least two ADC channels");
+	static_assert(arraySize(adc_report_s::channel_id) >= kAdsChannelCount,
+		      "ADS7828 requires adc_report to publish all 8 channels");
+	configure_channels_from_mask(static_cast<uint8_t>(config.custom1));
 }
 
 ADS7828::~ADS7828()
@@ -107,7 +108,8 @@ bool ADS7828::probe_address(uint8_t address)
 {
 	set_device_address(address);
 
-	const uint8_t command = kAdsSingleEndedCommand[kTh1Channel];
+	const uint8_t probe_channel = (_configured_channel_count > 0) ? _configured_channels[0] : 0;
+	const uint8_t command = kAdsSingleEndedCommand[probe_channel];
 	uint8_t response[2] {};
 	const int ret = transfer(&command, 1, response, sizeof(response));
 
@@ -117,6 +119,18 @@ bool ADS7828::probe_address(uint8_t address)
 
 	const uint16_t raw = static_cast<uint16_t>(((response[0] & 0x0F) << 8) | response[1]);
 	return raw <= kAdsMaxCode;
+}
+
+void ADS7828::configure_channels_from_mask(uint8_t channel_mask)
+{
+	_channel_mask = (channel_mask != 0) ? channel_mask : kDefaultChannelMask;
+	_configured_channel_count = 0;
+
+	for (uint8_t channel = 0; channel < kAdsChannelCount; ++channel) {
+		if ((_channel_mask & (1u << channel)) != 0) {
+			_configured_channels[_configured_channel_count++] = channel;
+		}
+	}
 }
 
 void ADS7828::clear_adc_report_channels()
@@ -129,15 +143,19 @@ void ADS7828::clear_adc_report_channels()
 
 void ADS7828::prime_reference()
 {
+	if (_configured_channel_count == 0) {
+		return;
+	}
+
 	uint16_t throwaway = 0;
-	(void)read_raw_once(kTh1Channel, throwaway);
+	(void)read_raw_once(_configured_channels[0], throwaway);
 	px4_usleep(5000);
-	(void)read_raw_once(kTh1Channel, throwaway);
+	(void)read_raw_once(_configured_channels[0], throwaway);
 }
 
 int ADS7828::read_raw_once(uint8_t channel, uint16_t &raw_out)
 {
-	if (channel >= arraySize(kAdsSingleEndedCommand)) {
+	if (channel >= kAdsChannelCount) {
 		return PX4_ERROR;
 	}
 
@@ -222,7 +240,7 @@ ADS7828::ThermistorReading ADS7828::read_thermistor(uint8_t channel)
 	return reading;
 }
 
-void ADS7828::publish_adc_report(const ThermistorReading &th1, const ThermistorReading &th2, hrt_abstime timestamp)
+void ADS7828::publish_adc_report(const ThermistorReading readings[kAdsChannelCount], hrt_abstime timestamp)
 {
 	clear_adc_report_channels();
 
@@ -231,14 +249,11 @@ void ADS7828::publish_adc_report(const ThermistorReading &th1, const ThermistorR
 	_adc_report.v_ref = kAdsReferenceVolts;
 	_adc_report.resolution = kAdsMaxCode + 1;
 
-	if (th1.sample_ok) {
-		_adc_report.channel_id[0] = kTh1Channel;
-		_adc_report.raw_data[0] = th1.raw;
-	}
-
-	if (th2.sample_ok) {
-		_adc_report.channel_id[1] = kTh2Channel;
-		_adc_report.raw_data[1] = th2.raw;
+	for (uint8_t i = 0; i < _configured_channel_count; ++i) {
+		if (readings[i].sample_ok) {
+			_adc_report.channel_id[i] = _configured_channels[i];
+			_adc_report.raw_data[i] = readings[i].raw;
+		}
 	}
 
 	_adc_report_pub.publish(_adc_report);
@@ -252,13 +267,16 @@ void ADS7828::RunImpl()
 
 	perf_begin(_cycle_perf);
 
-	const ThermistorReading th1 = read_thermistor(kTh1Channel);
-	const ThermistorReading th2 = read_thermistor(kTh2Channel);
+	ThermistorReading readings[kAdsChannelCount] {};
+
+	for (uint8_t i = 0; i < _configured_channel_count; ++i) {
+		readings[i] = read_thermistor(_configured_channels[i]);
+		_last_readings[i] = readings[i];
+	}
+
 	const hrt_abstime now = hrt_absolute_time();
 
-	publish_adc_report(th1, th2, now);
-	_last_th1 = th1;
-	_last_th2 = th2;
+	publish_adc_report(readings, now);
 	_has_published = true;
 
 	perf_end(_cycle_perf);
@@ -270,16 +288,20 @@ void ADS7828::print_status()
 	perf_print_counter(_cycle_perf);
 	perf_print_counter(_comms_errors);
 	PX4_INFO("errors=%lu", static_cast<unsigned long>(_error_count));
+	PX4_INFO("configured channels=%u mask=0x%02X",
+		 static_cast<unsigned>(_configured_channel_count),
+		 static_cast<unsigned>(_channel_mask));
 
 	if (_has_published) {
-		PX4_INFO("TH1 valid=%d raw=%u temp=%.2f C",
-			 _last_th1.conversion_ok,
-			 _last_th1.sample_ok ? _last_th1.raw : 0,
-			 static_cast<double>(_last_th1.conversion_ok ? _last_th1.temp_c : NAN));
-		PX4_INFO("TH2 valid=%d raw=%u temp=%.2f C",
-			 _last_th2.conversion_ok,
-			 _last_th2.sample_ok ? _last_th2.raw : 0,
-			 static_cast<double>(_last_th2.conversion_ok ? _last_th2.temp_c : NAN));
+		for (uint8_t i = 0; i < _configured_channel_count; ++i) {
+			const ThermistorReading &reading = _last_readings[i];
+			PX4_INFO("TH%u channel=%u valid=%d raw=%u temp=%.2f C",
+				 static_cast<unsigned>(i + 1),
+				 static_cast<unsigned>(_configured_channels[i]),
+				 reading.conversion_ok,
+				 reading.sample_ok ? reading.raw : 0,
+				 static_cast<double>(reading.conversion_ok ? reading.temp_c : NAN));
+		}
 
 	} else {
 		PX4_INFO("No thermistor samples published yet");
