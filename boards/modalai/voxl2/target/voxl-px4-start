@@ -197,7 +197,7 @@ fi
 #   MNT_MAN_PITCH=6
 #   MNT_RC_IN_MODE=2
 #   MNT_DO_STAB=1
-# and assign PCA9685_FUNC1=421 (Gimbal_Pitch) to send that output to the
+# and assign PCA9685_FUNC4=421 (Gimbal_Pitch) to send that output to the
 # custom board servo.
 if [ "$FIREDRONE_SERVO_ENABLE" == "ENABLE" ]; then
     FIREDRONE_SERVO_ADDRESS_DEC=$((FIREDRONE_SERVO_ADDRESS))
