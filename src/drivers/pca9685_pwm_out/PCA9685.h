@@ -109,6 +109,7 @@ public:
 	 * outputs formatted to us.
 	 */
 	int updatePWM(const uint16_t *outputs, unsigned num_outputs);
+	int setPWMus(uint8_t channel, uint16_t pulse_width_us);
 
 	int setFreq(float freq);
 

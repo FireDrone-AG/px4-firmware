@@ -69,6 +69,16 @@ int PCA9685::updatePWM(const uint16_t *outputs, unsigned num_outputs)
 	return setPWM(num_outputs, out);
 }
 
+int PCA9685::setPWMus(uint8_t channel, uint16_t pulse_width_us)
+{
+	if (channel >= PCA9685_PWM_CHANNEL_COUNT) {
+		return -EINVAL;
+	}
+
+	const uint16_t output = static_cast<uint16_t>(roundf((pulse_width_us * _Freq * PCA9685_PWM_RES) / 1e6f));
+	return setPWM(channel, output);
+}
+
 int PCA9685::setFreq(float freq)
 {
 	uint16_t realResolution = static_cast<uint16_t>(floorf((float)PCA9685_CLOCK_FREQ / freq));

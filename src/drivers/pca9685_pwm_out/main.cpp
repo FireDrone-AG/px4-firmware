@@ -78,6 +78,7 @@ public:
 	PCA9685Wrapper operator=(const PCA9685Wrapper &) = delete;
 
 	int print_status() override;
+	int setTestOutput(uint8_t channel, uint16_t pulse_width_us, uint32_t duration_ms);
 
 private:
 	perf_counter_t	_cycle_perf;
@@ -90,6 +91,9 @@ private:
 	STATE _state{STATE::INIT};
 	// If this value is above zero, then change freq and scheduling in running state.
 	float _targetFreq = PWM_DEFAULT_FREQUENCY;
+	uint8_t _test_channel{0};
+	uint16_t _test_pulse_width_us{1500};
+	hrt_abstime _test_output_until{0};
 
 
 	void Run() override;
@@ -146,6 +150,19 @@ bool PCA9685Wrapper::updateOutputs(bool stop_motors, uint16_t *outputs, unsigned
 	return pca9685->updatePWM(outputs, num_outputs) == PX4_OK;
 }
 
+int PCA9685Wrapper::setTestOutput(uint8_t channel, uint16_t pulse_width_us, uint32_t duration_ms)
+{
+	if (channel >= PCA9685_PWM_CHANNEL_COUNT || pulse_width_us < 800 || pulse_width_us > 2200 || duration_ms == 0) {
+		return PX4_ERROR;
+	}
+
+	_test_channel = channel;
+	_test_pulse_width_us = pulse_width_us;
+	_test_output_until = hrt_absolute_time() + duration_ms * 1000;
+	ScheduleNow();
+	return PX4_OK;
+}
+
 void PCA9685Wrapper::Run()
 {
 	if (should_exit()) {
@@ -198,7 +215,12 @@ void PCA9685Wrapper::Run()
 		break;
 
 	case STATE::RUNNING:
-		_mixing_output.update();
+		if (hrt_absolute_time() < _test_output_until) {
+			pca9685->setPWMus(_test_channel, _test_pulse_width_us);
+
+		} else {
+			_mixing_output.update();
+		}
 
 		// check for parameter updates
 		if (_parameter_update_sub.updated()) {
@@ -259,12 +281,16 @@ The number X can be acquired by executing
 `pca9685_pwm_out status` when this driver is running.
 )DESCR_STR");
 
-    PRINT_MODULE_USAGE_NAME("pca9685_pwm_out", "driver");
-    PRINT_MODULE_USAGE_COMMAND_DESCR("start", "Start the task");
-    PRINT_MODULE_USAGE_PARAM_INT('a',64,0,255,"device address on this bus",true);
+	PRINT_MODULE_USAGE_NAME("pca9685_pwm_out", "driver");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("start", "Start the task");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("test", "Hold one PCA9685 channel at a direct PWM pulse width for a bounded bench test");
+	PRINT_MODULE_USAGE_PARAM_INT('a',64,0,255,"device address on this bus",true);
 	PRINT_MODULE_USAGE_PARAM_INT('b',1,0,255,"bus that pca9685 is connected to",true);
 	PRINT_MODULE_USAGE_PARAM_INT('r',400,50,400,"schedule rate limit",true);
-    PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
+	PRINT_MODULE_USAGE_PARAM_INT('c',0,0,15,"PCA9685 channel for the test command",true);
+	PRINT_MODULE_USAGE_PARAM_INT('u',1500,800,2200,"PWM pulse width in microseconds for the test command",true);
+	PRINT_MODULE_USAGE_PARAM_INT('t',3,1,10,"Test duration in seconds",true);
+	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
     return 0;
 }
@@ -280,8 +306,34 @@ int PCA9685Wrapper::print_status() {
     return ret;
 }
 
-int PCA9685Wrapper::custom_command(int argc, char **argv) { // only for test use
-    return PX4_OK;
+int PCA9685Wrapper::custom_command(int argc, char **argv)
+{
+	if (argc > 0 && !strcmp(argv[0], "test")) {
+		int channel = 0;
+		int pulse_width_us = 1500;
+		int duration_s = 3;
+
+		int myoptind = 1;
+		const char *myoptarg = nullptr;
+		int ch;
+
+		while ((ch = px4_getopt(argc, argv, "c:u:t:", &myoptind, &myoptarg)) != EOF) {
+			switch (ch) {
+			case 'c': channel = atoi(myoptarg); break;
+			case 'u': pulse_width_us = atoi(myoptarg); break;
+			case 't': duration_s = atoi(myoptarg); break;
+			default: return print_usage("Unsupported test arguments");
+			}
+		}
+
+		if (!is_running() || channel < 0 || channel >= PCA9685_PWM_CHANNEL_COUNT || duration_s < 1 || duration_s > 10) {
+			return print_usage("Invalid test command");
+		}
+
+		return _object.load()->setTestOutput(channel, pulse_width_us, duration_s * 1000);
+	}
+
+	return print_usage("Unknown command");
 }
 
 int PCA9685Wrapper::task_spawn(int argc, char **argv) {
