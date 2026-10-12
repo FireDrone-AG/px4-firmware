@@ -36,6 +36,7 @@
 
 #include "input.h"
 #include "gimbal_params.h"
+#include <drivers/drv_hrt.h>
 #include <uORB/topics/manual_control_setpoint.h>
 
 namespace gimbal
