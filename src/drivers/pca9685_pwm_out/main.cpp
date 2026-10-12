@@ -88,10 +88,8 @@ private:
 		RUNNING
 	};
 	STATE _state{STATE::INIT};
-	// used to compare and cancel unecessary scheduling changes caused by parameter update
-	int32_t _last_fetched_Freq = -1;
 	// If this value is above zero, then change freq and scheduling in running state.
-	float _targetFreq = -1.0f;
+	float _targetFreq = PWM_DEFAULT_FREQUENCY;
 
 
 	void Run() override;
@@ -145,7 +143,7 @@ int PCA9685Wrapper::init()
 bool PCA9685Wrapper::updateOutputs(bool stop_motors, uint16_t *outputs, unsigned num_outputs,
 				   unsigned num_control_groups_updated)
 {
-	return pca9685->updatePWM(outputs, num_outputs) == 0 ? true : false;
+	return pca9685->updatePWM(outputs, num_outputs) == PX4_OK;
 }
 
 void PCA9685Wrapper::Run()
@@ -277,6 +275,7 @@ int PCA9685Wrapper::print_status() {
             pca9685->get_device_bus(),
             pca9685->get_device_address(),
              (double)(pca9685->getFrequency()));
+    PX4_INFO("last i2c transfer status %d", pca9685->lastTransferResult());
 
     return ret;
 }

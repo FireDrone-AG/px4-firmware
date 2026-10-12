@@ -174,6 +174,48 @@ fi
 /bin/echo "Looking for ncp5623c RGB LED"
 qshell rgbled_ncp5623c start -X -b 1 -f 400 -a 56
 
+# Auto detect the FireDrone ADS7828 thermistor board on J19 pins 4/5.
+# FIREDRONE_TEMP_CHANNELS is a comma-separated list of ADS7828 channels, for example:
+#   FIREDRONE_TEMP_CHANNELS=0,1
+#   FIREDRONE_TEMP_CHANNELS=0,1,2,3
+# Set it to an empty string to disable auto-start.
+if [ -n "$FIREDRONE_TEMP_CHANNELS" ]; then
+    /bin/echo "Looking for FireDrone ADS7828 thermistor board on channels $FIREDRONE_TEMP_CHANNELS"
+    if qshell ads7828 start -X -b 1 -f 100; then
+        qshell ads7828 channels -X -b 1 -c "$FIREDRONE_TEMP_CHANNELS"
+    fi
+else
+    /bin/echo "FireDrone ADS7828 thermistor auto-start disabled"
+fi
+
+# Optional FireDrone PCA9685 servo output driver on the same J19 I2C bus.
+# For the Winmate/QGroundControl setup, the on-screen joystick Gimbal Up/Down
+# actions are exposed in PX4 as a synthetic manual gimbal pitch input on AUX6.
+# Enable the mount pipeline with:
+#   MNT_MODE_IN=1
+#   MNT_MODE_OUT=0
+#   MNT_MAN_PITCH=6
+#   MNT_RC_IN_MODE=1
+# and assign PCA9685_FUNC1=421 (Gimbal_Pitch) to send that output to the
+# custom board servo.
+if [ "$FIREDRONE_SERVO_ENABLE" == "ENABLE" ]; then
+    FIREDRONE_SERVO_ADDRESS_DEC=$((FIREDRONE_SERVO_ADDRESS))
+    FIREDRONE_SERVO_ADDRESS_HEX=$(printf '0x%02X' "$FIREDRONE_SERVO_ADDRESS_DEC")
+    /bin/echo "Starting FireDrone PCA9685 servo driver on bus $FIREDRONE_SERVO_BUS address $FIREDRONE_SERVO_ADDRESS_HEX"
+    if ! qshell pca9685_pwm_out start -b "$FIREDRONE_SERVO_BUS" -a "$FIREDRONE_SERVO_ADDRESS_DEC"; then
+        /bin/echo "Failed to start FireDrone PCA9685 servo driver"
+    fi
+else
+    /bin/echo "FireDrone PCA9685 servo auto-start disabled"
+fi
+
+if param greater -s MNT_MODE_IN -1; then
+    /bin/echo "Starting PX4 gimbal helper"
+    if ! /usr/bin/px4-gimbal start; then
+        /bin/echo "Failed to start PX4 gimbal helper"
+    fi
+fi
+
 # We do not change the following parameters but QGC will complain if they aren't
 # being reported as "used" by px4. "Touching" them accomplishes that.
 param touch SYS_AUTOCONFIG

@@ -44,6 +44,7 @@
 #include <lib/conversion/rotation.h>
 #include <lib/systemlib/px4_macros.h>
 
+#include <float.h>
 #include <math.h>
 #include <poll.h>
 
@@ -2070,7 +2071,36 @@ MavlinkReceiver::handle_message_manual_control(mavlink_message_t *msg)
 
 	// PX4_INFO("Buttons: 0x%x 0x%x", mavlink_manual_control.buttons, mavlink_manual_control.buttons2);
 
+	// QGroundControl's joystick "Gimbal Up" / "Gimbal Down" actions arrive as MANUAL_CONTROL
+	// button bits. Expose them as a normalized auxiliary pitch input so the existing gimbal
+	// module can drive a servo output without needing a custom output driver.
+	static constexpr uint16_t qgc_joystick_button_gimbal_up = (1u << 12);
+	static constexpr uint16_t qgc_joystick_button_gimbal_down = (1u << 13);
+	static constexpr hrt_abstime qgc_gimbal_button_hold_time_us = 120000;
+
+	const float raw_gimbal_pitch_button_input =
+		((mavlink_manual_control.buttons & qgc_joystick_button_gimbal_up) ? 1.f : 0.f) -
+		((mavlink_manual_control.buttons & qgc_joystick_button_gimbal_down) ? 1.f : 0.f);
+
+	float gimbal_pitch_button_input = raw_gimbal_pitch_button_input;
+
+	// The on-screen QGC gimbal buttons can arrive as short button pulses instead of a
+	// steady held input. Hold the last commanded direction briefly so the gimbal rate
+	// command stays continuous while the button is held, but still releases promptly.
+	if (fabsf(raw_gimbal_pitch_button_input) > FLT_EPSILON) {
+		_last_qgc_gimbal_button_pitch_input = raw_gimbal_pitch_button_input;
+		_last_qgc_gimbal_button_time = manual_control_setpoint.timestamp;
+
+	} else if ((fabsf(_last_qgc_gimbal_button_pitch_input) > FLT_EPSILON)
+		   && (hrt_elapsed_time(&_last_qgc_gimbal_button_time) < qgc_gimbal_button_hold_time_us)) {
+		gimbal_pitch_button_input = _last_qgc_gimbal_button_pitch_input;
+
+	} else {
+		_last_qgc_gimbal_button_pitch_input = 0.f;
+	}
+
 	manual_control_setpoint.aux1 = (float) mavlink_manual_control.buttons;
+	manual_control_setpoint.aux6 = gimbal_pitch_button_input;
 
 	_manual_control_input_pub.publish(manual_control_setpoint);
 }

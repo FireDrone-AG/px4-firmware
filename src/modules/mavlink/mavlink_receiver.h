@@ -395,6 +395,9 @@ private:
 	hrt_abstime _heartbeat_component_udp_bridge{0};
 	hrt_abstime _heartbeat_component_uart_bridge{0};
 
+	hrt_abstime _last_qgc_gimbal_button_time{0};
+	float _last_qgc_gimbal_button_pitch_input{0.f};
+
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::BAT_CRIT_THR>)     _param_bat_crit_thr,
 		(ParamFloat<px4::params::BAT_EMERGEN_THR>)  _param_bat_emergen_thr,

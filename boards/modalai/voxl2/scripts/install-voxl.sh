@@ -13,12 +13,18 @@ adb push boards/modalai/voxl2/target/voxl-px4-start /usr/bin
 adb push boards/modalai/voxl2/target/voxl-px4-hitl /usr/bin
 adb push boards/modalai/voxl2/target/voxl-px4-hitl-start /usr/bin
 adb push boards/modalai/voxl2/target/voxl-px4-sih-start /usr/bin
+adb push ../scripts/firedrone-thermistors /usr/bin
+adb push ../scripts/firedrone-mavlink-temperatures /usr/bin
+adb push ../scripts/firedrone-mavlink-temperatures.service /etc/systemd/system
 adb shell chmod a+x /usr/bin/px4-alias.sh
 adb shell chmod a+x /usr/bin/voxl-px4
 adb shell chmod a+x /usr/bin/voxl-px4-start
 adb shell chmod a+x /usr/bin/voxl-px4-hitl
 adb shell chmod a+x /usr/bin/voxl-px4-hitl-start
 adb shell chmod a+x /usr/bin/voxl-px4-sih-start
+adb shell chmod a+x /usr/bin/firedrone-thermistors
+adb shell chmod a+x /usr/bin/firedrone-mavlink-temperatures
+adb shell systemctl daemon-reload
 
 # Push configuration file
 adb shell mkdir -p /etc/modalai
@@ -29,6 +35,7 @@ adb push boards/modalai/voxl2/target/voxl-px4-sih-set-default-parameters.config 
 # Make sure to setup all of the needed px4 aliases.
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-accelsim"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-attitude_estimator_q"
+adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-actuator_test"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-barosim"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-batt_smbus"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-bottle_drop"
@@ -123,6 +130,8 @@ adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-uorb_tests"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-ver"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-vl53lxx"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-vmount"
+adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-gimbal"
+adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-pca9685_pwm_out"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-vtol_att_control"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-wind_estimator"
 adb shell "cd /usr/bin; /bin/ln -f -s px4 px4-rc_controller"

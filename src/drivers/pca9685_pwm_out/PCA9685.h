@@ -117,6 +117,7 @@ public:
 	int initReg();
 
 	inline float getFrequency() {return _Freq;}
+	inline int lastTransferResult() const { return _last_transfer_result; }
 
 	/*
 	 * disable all of the output
@@ -154,13 +155,13 @@ protected:
 	 * set PWM value for a channel[0,15].
 	 * value should be range of 0-4095
 	 */
-	void setPWM(uint8_t channel, const uint16_t &value);
+	int setPWM(uint8_t channel, const uint16_t &value);
 
 	/**
 	 * set all PWMs in a single I2C transmission.
 	 * value should be range of 0-4095
 	 */
-	void setPWM(uint8_t channel_count, const uint16_t *value);
+	int setPWM(uint8_t channel_count, const uint16_t *value);
 
 	/*
 	 * set clock divider
@@ -168,6 +169,14 @@ protected:
 	void setDivider(uint8_t value);
 
 private:
+	static constexpr uint8_t kAddressMin = 0x40;
+	static constexpr uint8_t kAddressMax = 0x47;
+
+	bool probe_address(uint8_t address);
+	int readRegister(uint8_t reg, uint8_t &value);
+	int recordTransferResult(const char *context, int ret);
+
+	int _last_transfer_result{PX4_OK};
 
 };
 
