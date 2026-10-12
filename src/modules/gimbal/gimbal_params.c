@@ -247,8 +247,9 @@ PARAM_DEFINE_FLOAT(MNT_RATE_YAW, 30.0f);
  *
  * @value 0 Angle
  * @value 1 Angular rate
+ * @value 2 Stabilized angular rate
  * @min 0
- * @max 1
+ * @max 2
  * @group Mount
  */
 PARAM_DEFINE_INT32(MNT_RC_IN_MODE, 1);
