@@ -2341,6 +2341,30 @@ MavlinkReceiver::handle_message_manual_control(mavlink_message_t *msg)
 	// Pass along the button states
 	manual_control_setpoint.buttons = mavlink_manual_control.buttons;
 
+	// QGroundControl's joystick Gimbal Up and Gimbal Down actions arrive as
+	// MANUAL_CONTROL button bits. Map them to AUX6 for the RC gimbal input.
+	static constexpr uint16_t qgc_joystick_button_gimbal_up = 1u << 2;
+	static constexpr uint16_t qgc_joystick_button_gimbal_down = 1u << 3;
+	static constexpr hrt_abstime qgc_gimbal_button_hold_time_us = 120000;
+
+	const float raw_gimbal_pitch_button_input =
+		((mavlink_manual_control.buttons & qgc_joystick_button_gimbal_up) ? 1.f : 0.f) -
+		((mavlink_manual_control.buttons & qgc_joystick_button_gimbal_down) ? 1.f : 0.f);
+
+	float gimbal_pitch_button_input = raw_gimbal_pitch_button_input;
+
+	if (fabsf(raw_gimbal_pitch_button_input) > FLT_EPSILON) {
+		_last_qgc_gimbal_button_pitch_input = raw_gimbal_pitch_button_input;
+		_last_qgc_gimbal_button_time = hrt_absolute_time();
+
+	} else if ((fabsf(_last_qgc_gimbal_button_pitch_input) > FLT_EPSILON)
+		   && (hrt_elapsed_time(&_last_qgc_gimbal_button_time) < qgc_gimbal_button_hold_time_us)) {
+		gimbal_pitch_button_input = _last_qgc_gimbal_button_pitch_input;
+
+	} else {
+		_last_qgc_gimbal_button_pitch_input = 0.f;
+	}
+
 	if (mavlink_manual_control.enabled_extensions & (1u << 2)
 	    && math::isInRange((int)mavlink_manual_control.aux1, -1000, 1000)) { manual_control_setpoint.aux1 = mavlink_manual_control.aux1 / 1000.0f; }
 
@@ -2358,6 +2382,8 @@ MavlinkReceiver::handle_message_manual_control(mavlink_message_t *msg)
 
 	if (mavlink_manual_control.enabled_extensions & (1u << 7)
 	    && math::isInRange((int)mavlink_manual_control.aux6, -1000, 1000)) { manual_control_setpoint.aux6 = mavlink_manual_control.aux6 / 1000.0f; }
+
+	manual_control_setpoint.aux6 = gimbal_pitch_button_input;
 
 	manual_control_setpoint.data_source = manual_control_setpoint_s::SOURCE_MAVLINK_0 + _mavlink.get_instance_id();
 	manual_control_setpoint.timestamp = manual_control_setpoint.timestamp_sample = hrt_absolute_time();

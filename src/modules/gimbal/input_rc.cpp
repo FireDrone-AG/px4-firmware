@@ -149,7 +149,7 @@ InputRC::UpdateResult InputRC::_read_control_data_from_subscription(ControlData 
 			control_data.type_data.angle.angular_velocity[1] = NAN;
 			control_data.type_data.angle.angular_velocity[2] = NAN;
 
-		} else {
+		} else if (_parameters.mnt_rc_in_mode == 1) {
 			control_data.type_data.angle.q[0] = NAN;
 			control_data.type_data.angle.q[1] = NAN;
 			control_data.type_data.angle.q[2] = NAN;
@@ -162,6 +162,31 @@ InputRC::UpdateResult InputRC::_read_control_data_from_subscription(ControlData 
 			control_data.type_data.angle.frames[0] = ControlData::TypeData::TypeAngle::Frame::AngularRate;
 			control_data.type_data.angle.frames[1] = ControlData::TypeData::TypeAngle::Frame::AngularRate;
 			control_data.type_data.angle.frames[2] = ControlData::TypeData::TypeAngle::Frame::AngularRate;
+
+		} else {
+			const hrt_abstime now = hrt_absolute_time();
+
+			if (_last_stabilized_rate_update != 0) {
+				const float dt = math::constrain((now - _last_stabilized_rate_update) * 1e-6f, 0.f, 0.1f);
+				const float pitch_rate = math::radians(_parameters.mnt_rate_pitch) * new_aux_values[1];
+				const float pitch_min = math::radians(_parameters.mnt_min_pitch);
+				const float pitch_max = math::radians(_parameters.mnt_max_pitch);
+
+				_stabilized_rate_pitch_target = math::constrain(_stabilized_rate_pitch_target + pitch_rate * dt,
+										pitch_min, pitch_max);
+			}
+
+			_last_stabilized_rate_update = now;
+
+			matrix::Quatf(matrix::Eulerf(0.f, _stabilized_rate_pitch_target, 0.f)).copyTo(control_data.type_data.angle.q);
+
+			for (int i = 0; i < 3; ++i) {
+				control_data.type_data.angle.angular_velocity[i] = NAN;
+			}
+
+			control_data.type_data.angle.frames[0] = ControlData::TypeData::TypeAngle::Frame::AngleAbsoluteFrame;
+			control_data.type_data.angle.frames[1] = ControlData::TypeData::TypeAngle::Frame::AngleAbsoluteFrame;
+			control_data.type_data.angle.frames[2] = ControlData::TypeData::TypeAngle::Frame::AngleBodyFrame;
 		}
 
 		for (int i = 0; i < 3; ++i) {

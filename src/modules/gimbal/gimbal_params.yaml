@@ -187,9 +187,10 @@ parameters:
       values:
         0: Angle
         1: Angular rate
+        2: Stabilized angular rate
       default: 1
       min: 0
-      max: 1
+      max: 2
     MNT_LND_P_MIN:
       description:
         short: Pitch minimum when landed

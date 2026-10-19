@@ -36,6 +36,7 @@
 
 #include "input.h"
 #include "gimbal_params.h"
+#include <drivers/drv_hrt.h>
 #include <uORB/topics/manual_control_setpoint.h>
 
 namespace gimbal
@@ -62,6 +63,8 @@ private:
 	orb_sub_t _manual_control_setpoint_sub{ORB_SUB_INVALID};
 
 	float _last_set_aux_values[3] {};
+	float _stabilized_rate_pitch_target{0.f};
+	hrt_abstime _last_stabilized_rate_update{0};
 };
 
 } /* namespace gimbal */

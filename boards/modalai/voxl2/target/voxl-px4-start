@@ -182,6 +182,23 @@ fi
 /bin/echo "Looking for ncp5623c RGB LED"
 qshell rgbled_ncp5623c start -X -b 1 -f 400 -a 56
 
+# Optional FireDrone PCA9685 servo output driver on J19/I2C3.
+if [ "$FIREDRONE_SERVO_ENABLE" == "ENABLE" ]; then
+    FIREDRONE_SERVO_ADDRESS_DEC=$((FIREDRONE_SERVO_ADDRESS))
+    FIREDRONE_SERVO_ADDRESS_HEX=$(printf '0x%02X' "$FIREDRONE_SERVO_ADDRESS_DEC")
+    /bin/echo "Starting FireDrone PCA9685 servo driver on bus $FIREDRONE_SERVO_BUS address $FIREDRONE_SERVO_ADDRESS_HEX"
+    if ! qshell pca9685_pwm_out start -b "$FIREDRONE_SERVO_BUS" -a "$FIREDRONE_SERVO_ADDRESS_DEC" -f 100; then
+        /bin/echo "Failed to start FireDrone PCA9685 servo driver"
+    fi
+
+    /bin/echo "Starting FireDrone gimbal helper"
+    if ! gimbal start; then
+        /bin/echo "Failed to start FireDrone gimbal helper"
+    fi
+else
+    /bin/echo "FireDrone PCA9685 servo auto-start disabled"
+fi
+
 # We do not change the value of SYS_AUTOCONFIG but if it does not
 # show up as used then it is not reported to QGC and we get a
 # missing parameter error. Also, we don't use SYS_AUTOSTART but QGC
@@ -318,6 +335,18 @@ mavlink stream -u 14556 -s SCALED_PRESSURE -r 10
 
 # Increase heartbeat rate so VFC can get faster mode updates
 mavlink stream -u 14556 -s HEARTBEAT -r 10
+
+# Optional FireDrone ADS7828 thermistor driver on J19/I2C3.
+# FIREDRONE_TEMP_CHANNELS is a comma-separated ADS7828 channel list, for example: 0,1.
+# Start it asynchronously before the normal MAVLink link so the named-value
+# stream sees the advertised topic without blocking startup on the SLPI probe.
+if [ -n "$FIREDRONE_TEMP_CHANNELS" ]; then
+    /bin/echo "Starting FireDrone ADS7828 thermistor driver on bus 4 channels $FIREDRONE_TEMP_CHANNELS"
+    qshell ads7828 start -X -b 4 -a 0x48 -f 100 -c "$FIREDRONE_TEMP_CHANNELS" &
+    /bin/sleep 5
+else
+    /bin/echo "FireDrone ADS7828 thermistor auto-start disabled"
+fi
 
 # start the slow normal mode for voxl-mavlink-server to forward to GCS
 mavlink start -x -u 14558 -o 14559 -r 100000 -n lo
