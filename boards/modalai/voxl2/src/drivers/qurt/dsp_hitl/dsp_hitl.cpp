@@ -70,6 +70,8 @@
 #include <lib/drivers/magnetometer/PX4Magnetometer.hpp>
 #include <lib/drivers/device/Device.hpp> // For DeviceId union
 
+#include <simulation/simulator_mavlink/sensor_gps_from_gps_input.hpp>
+
 #include <px4_log.h>
 #include <px4_platform_common/module.h>
 
@@ -149,6 +151,8 @@ uint32_t odometry_received_counter = 0;
 uint32_t odometry_sent_counter = 0;
 uint32_t gps_received_counter = 0;
 uint32_t gps_sent_counter = 0;
+uint32_t gps_input_received_counter = 0;
+uint32_t gps_input_sent_counter = 0;
 uint32_t distance_received_counter = 0;
 uint32_t distance_sent_counter = 0;
 uint32_t flow_received_counter = 0;
@@ -203,6 +207,7 @@ void handle_message_hil_sensor_dsp(mavlink_message_t *msg);
 void handle_message_hil_optical_flow(mavlink_message_t *msg);
 void handle_message_distance_sensor(mavlink_message_t *msg);
 void handle_message_hil_gps_dsp(mavlink_message_t *msg);
+void handle_message_gps_input(mavlink_message_t *msg);
 void handle_message_odometry_dsp(mavlink_message_t *msg);
 void handle_message_command_long_dsp(mavlink_message_t *msg);
 
@@ -223,6 +228,13 @@ handle_message_dsp(mavlink_message_t *msg)
 		gps_received_counter++;
 
 		if (position_source_data[(int) position_source::GPS].send) { handle_message_hil_gps_dsp(msg); }
+
+		break;
+
+	case MAVLINK_MSG_ID_GPS_INPUT:
+		gps_input_received_counter++;
+
+		if (position_source_data[(int) position_source::GPS].send) { handle_message_gps_input(msg); }
 
 		break;
 
@@ -1044,6 +1056,7 @@ void print_status()
 	PX4_INFO("Heartbeat received: %i, sent: %i", heartbeat_received_counter, heartbeat_sent_counter);
 	PX4_INFO("Odometry received: %i, sent: %i", odometry_received_counter, odometry_sent_counter);
 	PX4_INFO("GPS received: %i, sent: %i", gps_received_counter, gps_sent_counter);
+	PX4_INFO("GPS_INPUT received: %i, sent: %i", gps_input_received_counter, gps_input_sent_counter);
 	PX4_INFO("Distance sensor received: %i, sent: %i", distance_received_counter, distance_sent_counter);
 	PX4_INFO("Optical flow received: %i, sent: %i", flow_received_counter, flow_sent_counter);
 	PX4_INFO("Actuator updates sent: %i", actuator_sent_counter);
@@ -1064,6 +1077,8 @@ clear_status_counters()
 	odometry_sent_counter = 0;
 	gps_received_counter = 0;
 	gps_sent_counter = 0;
+	gps_input_received_counter = 0;
+	gps_input_sent_counter = 0;
 	distance_received_counter = 0;
 	distance_sent_counter = 0;
 	flow_received_counter = 0;
@@ -1258,6 +1273,58 @@ handle_message_hil_gps_dsp(mavlink_message_t *msg)
 	_sensor_gps_pub.publish(gps);
 
 	gps_sent_counter++;
+}
+
+void
+handle_message_gps_input(mavlink_message_t *msg)
+{
+	mavlink_gps_input_t gps_input;
+	mavlink_msg_gps_input_decode(msg, &gps_input);
+
+	sensor_gps_s gps{};
+
+	// Same device id as the HIL_GPS path: both describe the same simulated receiver.
+	device::Device::DeviceId device_id;
+	device_id.devid_s.bus_type = device::Device::DeviceBusType::DeviceBusType_MAVLINK;
+	device_id.devid_s.bus = 1;
+	device_id.devid_s.address = msg->sysid;
+	device_id.devid_s.devtype = DRV_GPS_DEVTYPE_SIM;
+
+	gps.device_id = device_id.devid;
+
+	simulation::sensor_gps_from_gps_input(gps_input, gps);
+
+	// `dsp_hitl failure gps <duration>`: same behaviour as the HIL_GPS path.
+	int index = (int) position_source::GPS;
+
+	if (position_source_data[index].fail) {
+		uint32_t duration = position_source_data[index].failure_duration;
+		hrt_abstime start = position_source_data[index].failure_duration_start;
+
+		if (duration) {
+			if (hrt_elapsed_time(&start) > (duration * 1000000)) {
+				PX4_INFO("GPS failure ending");
+				position_source_data[index].fail = false;
+				position_source_data[index].failure_duration = 0;
+				position_source_data[index].failure_duration_start = 0;
+
+			} else {
+				gps.satellites_used = 1;
+				gps.fix_type = 0;
+			}
+
+		} else {
+			gps.satellites_used = 1;
+			gps.fix_type = 0;
+		}
+	}
+
+	// Stamped on arrival, as for HIL_GPS.
+	gps.timestamp = hrt_absolute_time();
+
+	_sensor_gps_pub.publish(gps);
+
+	gps_input_sent_counter++;
 }
 
 int

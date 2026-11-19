@@ -241,6 +241,7 @@ private:
 	void handle_message(const mavlink_message_t *msg);
 	void handle_message_distance_sensor(const mavlink_message_t *msg);
 	void handle_message_hil_gps(const mavlink_message_t *msg);
+	void handle_message_gps_input(const mavlink_message_t *msg);
 	void handle_message_hil_sensor(const mavlink_message_t *msg);
 	void handle_message_hil_state_quaternion(const mavlink_message_t *msg);
 	void handle_message_landing_target(const mavlink_message_t *msg);

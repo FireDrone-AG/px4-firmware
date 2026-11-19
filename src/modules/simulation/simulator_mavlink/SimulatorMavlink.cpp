@@ -34,6 +34,7 @@
  ****************************************************************************/
 
 #include "SimulatorMavlink.hpp"
+#include "sensor_gps_from_gps_input.hpp"
 
 #include <px4_platform_common/log.h>
 #include <px4_platform_common/time.h>
@@ -375,6 +376,10 @@ void SimulatorMavlink::handle_message(const mavlink_message_t *msg)
 		handle_message_hil_gps(msg);
 		break;
 
+	case MAVLINK_MSG_ID_GPS_INPUT:
+		handle_message_gps_input(msg);
+		break;
+
 	case MAVLINK_MSG_ID_RC_CHANNELS:
 		handle_message_rc_channels(msg);
 		break;
@@ -506,6 +511,67 @@ void SimulatorMavlink::handle_message_hil_gps(const mavlink_message_t *msg)
 				}
 
 				_gps_ids[i] = hil_gps.id;
+
+				device::Device::DeviceId device_id;
+				device_id.devid_s.bus_type = device::Device::DeviceBusType::DeviceBusType_SIMULATION;
+				device_id.devid_s.bus = 0;
+				device_id.devid_s.address = i;
+				device_id.devid_s.devtype = DRV_GPS_DEVTYPE_SIM;
+				gps.device_id = device_id.devid;
+
+				_sensor_gps_pubs[i]->publish(gps);
+				break;
+			}
+		}
+	}
+}
+
+void SimulatorMavlink::handle_message_gps_input(const mavlink_message_t *msg)
+{
+	mavlink_gps_input_t gps_input;
+	mavlink_msg_gps_input_decode(msg, &gps_input);
+
+	// Failure injection (gps off / stuck / wrong) behaves as in handle_message_hil_gps().
+	if (!_gps_blocked) {
+		sensor_gps_s gps{};
+
+		if (!_gps_stuck) {
+			simulation::sensor_gps_from_gps_input(gps_input, gps);
+
+			if (_gps_wrong) {
+				gps.latitude_deg += 1.0;
+				gps.longitude_deg += 1.0;
+				gps.altitude_msl_m += 100.0;
+				gps.altitude_ellipsoid_m -= 100.0;
+				gps.vel_m_s -= 1.f;
+				gps.vel_n_m_s += 5.f;
+				gps.vel_e_m_s -= 8.f;
+				gps.vel_d_m_s += 2.f;
+			}
+
+			_gps_prev = gps;
+
+		} else {
+			gps = _gps_prev;
+		}
+
+		gps.timestamp = hrt_absolute_time();
+
+		// GPS_INPUT gps_id shares the publisher/instance table with the HIL_GPS id
+		for (size_t i = 0; i < sizeof(_gps_ids) / sizeof(_gps_ids[0]); i++) {
+			if (_sensor_gps_pubs[i] && _gps_ids[i] == gps_input.gps_id) {
+				_sensor_gps_pubs[i]->publish(gps);
+				break;
+			}
+
+			if (_sensor_gps_pubs[i] == nullptr) {
+				_sensor_gps_pubs[i] = new uORB::PublicationMulti<sensor_gps_s> {ORB_ID(sensor_gps)};
+
+				if (_sensor_gps_pubs[i] == nullptr) {
+					break;
+				}
+
+				_gps_ids[i] = gps_input.gps_id;
 
 				device::Device::DeviceId device_id;
 				device_id.devid_s.bus_type = device::Device::DeviceBusType::DeviceBusType_SIMULATION;
