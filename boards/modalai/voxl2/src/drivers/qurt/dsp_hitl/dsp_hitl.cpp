@@ -139,6 +139,14 @@ float y_gyro = 0;
 float z_gyro = 0;
 uint64_t gyro_accel_time = 0;
 
+// Simulator clock (HIL_SENSOR time_usec) mapped onto PX4's: PX4 time = sim time + offset.
+// Used to keep the sample time of messages that carry one (ODOMETRY), as timesync does on the
+// production MAVLink path. The offset tracks the least transport delay and follows slow drift.
+int64_t sim_clock_offset_us = 0;
+bool sim_clock_valid = false;
+int64_t odometry_last_age_us = -1;
+uint32_t odometry_sample_time_counter = 0;
+
 // Status counters
 uint32_t heartbeat_received_counter = 0;
 uint32_t heartbeat_sent_counter = 0;
@@ -692,6 +700,21 @@ handle_message_odometry_dsp(mavlink_message_t *msg)
 	uint64_t timestamp = hrt_absolute_time();
 	odom.timestamp_sample = timestamp;
 
+	// Keep the sender's sample time (simulator clock) so the measurement's age reaches EKF2, as on the
+	// production path; arrival time if there is no clock mapping or the stamp is implausible.
+	odometry_last_age_us = -1;
+
+	if (sim_clock_valid && odom_in.time_usec > 0) {
+		const int64_t sample = (int64_t)odom_in.time_usec + sim_clock_offset_us;
+		const int64_t age = (int64_t)timestamp - sample;
+
+		if (age >= 0 && age <= 500000) {
+			odom.timestamp_sample = (uint64_t)sample;
+			odometry_last_age_us = age;
+			odometry_sample_time_counter++;
+		}
+	}
+
 	const matrix::Vector3f odom_in_p(odom_in.x, odom_in.y, odom_in.z);
 
 	// position x/y/z (m)
@@ -1055,6 +1078,8 @@ void print_status()
 	PX4_INFO("Barometer sent: %i", baro_counter);
 	PX4_INFO("Heartbeat received: %i, sent: %i", heartbeat_received_counter, heartbeat_sent_counter);
 	PX4_INFO("Odometry received: %i, sent: %i", odometry_received_counter, odometry_sent_counter);
+	PX4_INFO("\tsample time kept: %i, last age: %.1f ms", odometry_sample_time_counter,
+		 (double)odometry_last_age_us / 1000.0);
 	PX4_INFO("GPS received: %i, sent: %i", gps_received_counter, gps_sent_counter);
 	PX4_INFO("GPS_INPUT received: %i, sent: %i", gps_input_received_counter, gps_input_sent_counter);
 	PX4_INFO("Distance sensor received: %i, sent: %i", distance_received_counter, distance_sent_counter);
@@ -1075,6 +1100,7 @@ clear_status_counters()
 	actuator_sent_counter = 0;
 	odometry_received_counter = 0;
 	odometry_sent_counter = 0;
+	odometry_sample_time_counter = 0;
 	gps_received_counter = 0;
 	gps_sent_counter = 0;
 	gps_input_received_counter = 0;
@@ -1094,6 +1120,18 @@ handle_message_hil_sensor_dsp(mavlink_message_t *msg)
 
 	// temperature only updated with baro
 	gyro_accel_time = hrt_absolute_time();
+
+	if (hil_sensor.time_usec > 0) {
+		const int64_t offset = (int64_t)gyro_accel_time - (int64_t)hil_sensor.time_usec;
+
+		if (!sim_clock_valid || offset < sim_clock_offset_us || offset - sim_clock_offset_us > 1000000) {
+			sim_clock_offset_us = offset;   // first sample, less delay, or the simulator restarted
+			sim_clock_valid = true;
+
+		} else {
+			sim_clock_offset_us += (offset - sim_clock_offset_us) / 1000;
+		}
+	}
 
 	// temperature only updated with baro
 	float temperature = NAN;

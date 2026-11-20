@@ -980,7 +980,15 @@ void SimulatorMavlink::handle_message_odometry(const mavlink_message_t *msg)
 	// fill vehicle_odometry from Mavlink ODOMETRY
 	vehicle_odometry_s odom{vehicle_odometry_empty};
 
-	odom.timestamp_sample = hrt_absolute_time(); // _mavlink_timesync.sync_stamp(odom_in.time_usec);
+	const hrt_abstime now = hrt_absolute_time();
+	odom.timestamp_sample = now;
+
+	// In lockstep the PX4 clock is the simulator's (set from HIL_SENSOR time_usec), so the sender's
+	// sample time keeps the measurement's age for EKF2, as timesync does on the production path.
+	// Implausible stamps fall back to arrival time.
+	if (odom_in.time_usec > 0 && odom_in.time_usec <= now && now - odom_in.time_usec <= 500000) {
+		odom.timestamp_sample = odom_in.time_usec;
+	}
 
 	// position x/y/z (m)
 	matrix::Vector3f odom_in_p(odom_in.x, odom_in.y, odom_in.z);
