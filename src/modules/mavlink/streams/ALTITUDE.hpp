@@ -91,11 +91,11 @@ private:
 		if (_local_pos_sub.copy(&local_pos)) {
 
 			if (local_pos.z_valid) {
+				// Without a global altitude reference there is no AMSL altitude: report NaN instead of the
+				// barometric altitude so that a ground station does not use it for AMSL targets (O23).
+				// The barometric altitude stays available in altitude_monotonic.
 				if (local_pos.z_global) {
 					msg.altitude_amsl = -local_pos.z + local_pos.ref_alt;
-
-				} else {
-					msg.altitude_amsl = msg.altitude_monotonic;
 				}
 
 				msg.altitude_local = -local_pos.z;
