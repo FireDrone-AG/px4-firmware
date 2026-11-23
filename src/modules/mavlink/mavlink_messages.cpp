@@ -84,6 +84,7 @@
 #include "streams/GNSS_INTEGRITY.hpp"
 #endif
 #include "streams/GPS_GLOBAL_ORIGIN.hpp"
+#include "streams/GNSS_REJOIN_STATE.hpp"
 #include "streams/GPS_RAW_INT.hpp"
 #include "streams/GPS_STATUS.hpp"
 #include "streams/HEARTBEAT.hpp"
@@ -400,6 +401,9 @@ static const StreamListItem streams_list[] = {
 #if defined(NAMED_VALUE_FLOAT_HPP)
 	create_stream_list_item<MavlinkStreamNamedValueFloat>(),
 #endif // NAMED_VALUE_FLOAT_HPP
+#if defined(GNSS_REJOIN_STATE_HPP)
+	create_stream_list_item<MavlinkStreamGnssRejoinState>(),
+#endif // GNSS_REJOIN_STATE_HPP
 #if defined(DEBUG_HPP)
 	create_stream_list_item<MavlinkStreamDebug>(),
 #endif // DEBUG_HPP
