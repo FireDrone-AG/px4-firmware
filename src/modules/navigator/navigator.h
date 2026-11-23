@@ -362,6 +362,12 @@ private:
 	position_setpoint_triplet_s			_pos_sp_triplet{};	/**< triplet of position setpoints */
 	position_setpoint_triplet_s			_reposition_triplet{};	/**< triplet for non-mission direct position command */
 	position_setpoint_triplet_s			_takeoff_triplet{};	/**< triplet for non-mission direct takeoff command */
+
+	bool _global_ref_initialized{false};
+	bool _global_ref_xy_global{false};
+	bool _global_ref_z_global{false};
+	MapProjection _global_ref{};
+	float _global_ref_alt{0.f};
 	vehicle_roi_s					_vroi{};		/**< vehicle ROI */
 
 
@@ -426,6 +432,15 @@ private:
 	 * Publish a new position setpoint triplet for position controllers
 	 */
 	void publish_position_setpoint_triplet();
+
+	/**
+	 * Without a global reference (local_position xy_global / z_global false) use the local position as
+	 * global position in the convention of FlightTaskAuto (lat/lon origin 0/0, altitude origin 0), and when
+	 * the reference changes between "none" and "valid" re-express the stored targets (O23/O29/O31).
+	 */
+	void updateGlobalReference();
+	void shiftSetpoint(position_setpoint_s &sp, const MapProjection &old_ref, float old_ref_alt,
+			   const MapProjection &new_ref, float new_ref_alt);
 
 	/**
 	 * Publish the mission result so commander and mavlink know what is going on

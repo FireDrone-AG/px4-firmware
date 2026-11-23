@@ -55,6 +55,8 @@ bool FlightTaskAuto::activate(const trajectory_setpoint_s &last_setpoint)
 
 	_manual_yaw_active = false;
 	_triplet_yaw = NAN;
+	_reference_valid = false;
+	_keep_triplet_reference = false;
 	_nav_state_prev = _sub_vehicle_status.get().nav_state;
 
 	Vector3f vel_prev{last_setpoint.velocity};
@@ -425,6 +427,25 @@ bool FlightTaskAuto::_evaluatePositionSetpointTriplet()
 	// Ensure planned cruise speed is below the maximum such that the smooth trajectory doesn't get capped
 	_mc_cruise_speed = math::min(_mc_cruise_speed, _param_mpc_xy_vel_max.get());
 
+	// After a change between "no global reference" and "global reference", keep using the reference the
+	// current triplet was received with until the navigator sends a different one.
+	if (_keep_triplet_reference) {
+		const auto same = [](double a, double b, double eps) {
+			return (!PX4_ISFINITE(a) && !PX4_ISFINITE(b)) || (fabs(a - b) < eps);
+		};
+
+		const bool triplet_unchanged = same(position_setpoint_triplet.current.lat, _triplet_raw_lat, 1e-9)
+					       && same(position_setpoint_triplet.current.lon, _triplet_raw_lon, 1e-9)
+					       && same((double)position_setpoint_triplet.current.alt, (double)_triplet_raw_alt, 1e-3);
+
+		if (!triplet_unchanged) {
+			_keep_triplet_reference = false;
+		}
+	}
+
+	const MapProjection &reference_position = _keep_triplet_reference ? _triplet_reference_position : _reference_position;
+	const float reference_altitude = _keep_triplet_reference ? _triplet_reference_altitude : _reference_altitude;
+
 	// Temporary target variable where we save the local reprojection of the latest navigator current triplet.
 	Vector3f tmp_target;
 
@@ -445,11 +466,11 @@ bool FlightTaskAuto::_evaluatePositionSetpointTriplet()
 		_lock_position_xy.setAll(NAN);
 
 		// Convert from global to local frame.
-		_reference_position.project(position_setpoint_triplet.current.lat, position_setpoint_triplet.current.lon,
-					    tmp_target(0), tmp_target(1));
+		reference_position.project(position_setpoint_triplet.current.lat, position_setpoint_triplet.current.lon,
+					   tmp_target(0), tmp_target(1));
 	}
 
-	tmp_target(2) = -(position_setpoint_triplet.current.alt - _reference_altitude);
+	tmp_target(2) = -(position_setpoint_triplet.current.alt - reference_altitude);
 
 	// Check if anything has changed. We do that by comparing the temporary target
 	// to the internal _triplet_current.
@@ -480,9 +501,9 @@ bool FlightTaskAuto::_evaluatePositionSetpointTriplet()
 		}
 
 		if (_isFinite(position_setpoint_triplet.previous) && position_setpoint_triplet.previous.valid) {
-			_reference_position.project(position_setpoint_triplet.previous.lat,
-						    position_setpoint_triplet.previous.lon, _triplet_previous(0), _triplet_previous(1));
-			_triplet_previous(2) = -(position_setpoint_triplet.previous.alt - _reference_altitude);
+			reference_position.project(position_setpoint_triplet.previous.lat,
+						   position_setpoint_triplet.previous.lon, _triplet_previous(0), _triplet_previous(1));
+			_triplet_previous(2) = -(position_setpoint_triplet.previous.alt - reference_altitude);
 
 		} else {
 			_triplet_previous = _triplet_current;
@@ -494,9 +515,9 @@ bool FlightTaskAuto::_evaluatePositionSetpointTriplet()
 			_triplet_next = _triplet_current;
 
 		} else if (_isFinite(position_setpoint_triplet.next) && position_setpoint_triplet.next.valid) {
-			_reference_position.project(position_setpoint_triplet.next.lat,
-						    position_setpoint_triplet.next.lon, _triplet_next(0), _triplet_next(1));
-			_triplet_next(2) = -(position_setpoint_triplet.next.alt - _reference_altitude);
+			reference_position.project(position_setpoint_triplet.next.lat,
+						   position_setpoint_triplet.next.lon, _triplet_next(0), _triplet_next(1));
+			_triplet_next(2) = -(position_setpoint_triplet.next.alt - reference_altitude);
 
 		} else {
 			_triplet_next = _triplet_current;
@@ -626,26 +647,46 @@ bool FlightTaskAuto::_isFinite(const position_setpoint_s &sp)
 
 bool FlightTaskAuto::_evaluateGlobalReference()
 {
+	const vehicle_local_position_s &lpos = _sub_vehicle_local_position.get();
+
+	// A change between "no global reference" and "global reference" keeps the local position:
+	// keep the current triplet in the reference it was received with (like an EKF reset).
+	const bool reference_flipped = _reference_valid
+				       && ((lpos.xy_global != _reference_xy_global) || (lpos.z_global != _reference_z_global));
+
+	if (reference_flipped && !_keep_triplet_reference) {
+		const position_setpoint_s &current = _position_setpoint_triplet_sub.get().current;
+		_triplet_reference_position = _reference_position;
+		_triplet_reference_altitude = _reference_altitude;
+		_triplet_raw_lat = current.lat;
+		_triplet_raw_lon = current.lon;
+		_triplet_raw_alt = current.alt;
+		_keep_triplet_reference = true;
+	}
+
+	_reference_xy_global = lpos.xy_global;
+	_reference_z_global = lpos.z_global;
+
 	// check if reference has changed and update.
 	// Only update if reference timestamp has changed AND no valid reference altitude
 	// is available.
 	// TODO: this needs to be revisited and needs a more clear implementation
-	if (_sub_vehicle_local_position.get().ref_timestamp == _time_stamp_reference && PX4_ISFINITE(_reference_altitude)) {
+	if (!reference_flipped && (lpos.ref_timestamp == _time_stamp_reference) && PX4_ISFINITE(_reference_altitude)) {
 		// don't need to update anything
 		return true;
 	}
 
-	double ref_lat = _sub_vehicle_local_position.get().ref_lat;
-	double ref_lon = _sub_vehicle_local_position.get().ref_lon;
-	_reference_altitude = _sub_vehicle_local_position.get().ref_alt;
+	double ref_lat = lpos.ref_lat;
+	double ref_lon = lpos.ref_lon;
+	_reference_altitude = lpos.ref_alt;
 
-	if (!_sub_vehicle_local_position.get().z_global) {
+	if (!lpos.z_global) {
 		// we have no valid global altitude
 		// set global reference to local reference
 		_reference_altitude = 0.0f;
 	}
 
-	if (!_sub_vehicle_local_position.get().xy_global) {
+	if (!lpos.xy_global) {
 		// we have no valid global alt/lat
 		// set global reference to local reference
 		ref_lat = 0.0;
@@ -654,6 +695,7 @@ bool FlightTaskAuto::_evaluateGlobalReference()
 
 	// init projection
 	_reference_position.initReference(ref_lat, ref_lon, _time_stamp_current);
+	_reference_valid = true;
 
 	// check if everything is still finite
 	return PX4_ISFINITE(_reference_altitude) && PX4_ISFINITE(ref_lat) && PX4_ISFINITE(ref_lon);

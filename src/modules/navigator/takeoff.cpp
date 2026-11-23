@@ -249,3 +249,21 @@ Takeoff::set_takeoff_position()
 
 	_navigator->set_position_setpoint_triplet_updated();
 }
+
+void
+Takeoff::shiftGlobalReference(const MapProjection &old_ref, float old_ref_alt,
+			      const MapProjection &new_ref, float new_ref_alt)
+{
+	MissionBlock::shiftGlobalReference(old_ref, old_ref_alt, new_ref, new_ref_alt);
+
+	if (PX4_ISFINITE(_loiter_altitude_msl)) {
+		_loiter_altitude_msl += new_ref_alt - old_ref_alt;
+	}
+
+	if (PX4_ISFINITE(_loiter_position_lat_lon(0)) && PX4_ISFINITE(_loiter_position_lat_lon(1))) {
+		float x = 0.f;
+		float y = 0.f;
+		old_ref.project(_loiter_position_lat_lon(0), _loiter_position_lat_lon(1), x, y);
+		new_ref.reproject(x, y, _loiter_position_lat_lon(0), _loiter_position_lat_lon(1));
+	}
+}

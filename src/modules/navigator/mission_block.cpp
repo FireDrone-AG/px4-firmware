@@ -1078,3 +1078,19 @@ void MissionBlock::updateMaxHaglFailsafe()
 		_navigator->set_position_setpoint_triplet_updated();
 	}
 }
+
+void
+MissionBlock::shiftGlobalReference(const MapProjection &old_ref, float old_ref_alt,
+				   const MapProjection &new_ref, float new_ref_alt)
+{
+	if (PX4_ISFINITE(_mission_item.lat) && PX4_ISFINITE(_mission_item.lon)) {
+		float x = 0.f;
+		float y = 0.f;
+		old_ref.project(_mission_item.lat, _mission_item.lon, x, y);
+		new_ref.reproject(x, y, _mission_item.lat, _mission_item.lon);
+	}
+
+	if (!_mission_item.altitude_is_relative && PX4_ISFINITE(_mission_item.altitude)) {
+		_mission_item.altitude += new_ref_alt - old_ref_alt;
+	}
+}

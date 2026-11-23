@@ -54,6 +54,9 @@ public:
 	void on_active() override;
 
 	void setLoiterPosition(matrix::Vector2d loiter_location) { _loiter_position_lat_lon = loiter_location; }
+
+	void shiftGlobalReference(const MapProjection &old_ref, float old_ref_alt,
+				  const MapProjection &new_ref, float new_ref_alt) override;
 	void setLoiterAltitudeAmsl(const float height_m) { _loiter_altitude_msl = height_m; }
 
 private:

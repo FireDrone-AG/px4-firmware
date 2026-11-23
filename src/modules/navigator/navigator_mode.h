@@ -42,6 +42,7 @@
 #pragma once
 
 #include <cstdint>
+#include <lib/geo/geo.h>
 
 class Navigator;
 
@@ -74,6 +75,13 @@ public:
 	 * This function is called one time when mode becomes inactive
 	 */
 	virtual void on_inactivation();
+
+	/**
+	 * The global reference changed between "none" and "valid" (EKF origin set or cleared) while the
+	 * local position stayed the same: re-express stored global targets so they keep their local position.
+	 */
+	virtual void shiftGlobalReference(const MapProjection &old_ref, float old_ref_alt,
+					  const MapProjection &new_ref, float new_ref_alt) {}
 
 	/**
 	 * This function is called while the mode is active

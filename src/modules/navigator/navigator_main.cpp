@@ -231,6 +231,8 @@ void Navigator::run()
 			_global_pos_sub.copy(&_global_pos);
 		}
 
+		updateGlobalReference();
+
 		/* update last known position with GCS heartbeat */
 		for (auto &telemetry_sub : _telemetry_status_subs) {
 			telemetry_status_s telemetry;
@@ -687,9 +689,21 @@ void Navigator::run()
 				// The yaw setpoint generation is handled by FlightTaskAuto.
 				rep->current.yaw = NAN;
 
-				if (PX4_ISFINITE(cmd.param5) && PX4_ISFINITE(cmd.param6)) {
-					rep->current.lat = cmd.param5;
-					rep->current.lon = cmd.param6;
+				// Without a global reference the commanded lat/lon/alt (AMSL) cannot be expressed in the
+				// frame used for navigation: take off above the current position by MIS_TAKEOFF_ALT (O23)
+				const bool xy_global = _local_pos.xy_global;
+				const bool z_global = _local_pos.z_global;
+				const double takeoff_lat = xy_global ? cmd.param5 : static_cast<double>(NAN);
+				const double takeoff_lon = xy_global ? cmd.param6 : static_cast<double>(NAN);
+				const float takeoff_alt = z_global ? cmd.param7 : NAN;
+
+				if (!z_global && PX4_ISFINITE(cmd.param7)) {
+					PX4_WARN("takeoff: no global altitude, ignoring commanded altitude, using MIS_TAKEOFF_ALT");
+				}
+
+				if (PX4_ISFINITE(takeoff_lat) && PX4_ISFINITE(takeoff_lon)) {
+					rep->current.lat = takeoff_lat;
+					rep->current.lon = takeoff_lon;
 
 				} else {
 					// If one of them is non-finite set the current global position as target
@@ -698,7 +712,7 @@ void Navigator::run()
 
 				}
 
-				rep->current.alt = cmd.param7;
+				rep->current.alt = takeoff_alt;
 
 				rep->current.valid = true;
 				rep->current.timestamp = hrt_absolute_time();
@@ -706,8 +720,8 @@ void Navigator::run()
 				rep->next.valid = false;
 
 				// Fixed-wing: vehicle will takeoff towards these coordinates and establish on a loiter there
-				_takeoff.setLoiterPosition(matrix::Vector2d(cmd.param5, cmd.param6));
-				_takeoff.setLoiterAltitudeAmsl(cmd.param7);
+				_takeoff.setLoiterPosition(matrix::Vector2d(takeoff_lat, takeoff_lon));
+				_takeoff.setLoiterAltitudeAmsl(takeoff_alt);
 
 				// CMD_NAV_TAKEOFF is acknowledged by commander
 
@@ -1021,7 +1035,9 @@ void Navigator::geofence_breach_check()
 		double current_latitude = _global_pos.lat;
 		double current_longitude = _global_pos.lon;
 		float current_altitude = _global_pos.alt;
-		bool position_valid = _global_pos.timestamp > 0;
+		// without a global reference _global_pos holds the local position (updateGlobalReference()),
+		// which must not be checked against a geofence in global coordinates
+		bool position_valid = (_global_pos.timestamp > 0) && _local_pos.xy_global && _local_pos.z_global;
 
 		if (_geofence.getSource() == Geofence::GF_SOURCE_GPS) {
 			current_latitude = _gps_pos.latitude_deg;
@@ -1134,6 +1150,75 @@ int Navigator::print_status()
 
 	_geofence.printStatus();
 	return 0;
+}
+
+void Navigator::shiftSetpoint(position_setpoint_s &sp, const MapProjection &old_ref, float old_ref_alt,
+			      const MapProjection &new_ref, float new_ref_alt)
+{
+	if (PX4_ISFINITE(sp.lat) && PX4_ISFINITE(sp.lon)) {
+		float x = 0.f;
+		float y = 0.f;
+		old_ref.project(sp.lat, sp.lon, x, y);
+		new_ref.reproject(x, y, sp.lat, sp.lon);
+	}
+
+	if (PX4_ISFINITE(sp.alt)) {
+		sp.alt += new_ref_alt - old_ref_alt;
+	}
+}
+
+void Navigator::updateGlobalReference()
+{
+	const bool xy_global = _local_pos.xy_global;
+	const bool z_global = _local_pos.z_global;
+	const double ref_lat = xy_global ? _local_pos.ref_lat : 0.0;
+	const double ref_lon = xy_global ? _local_pos.ref_lon : 0.0;
+	const float ref_alt = z_global ? _local_pos.ref_alt : 0.f;
+
+	if (!PX4_ISFINITE(ref_lat) || !PX4_ISFINITE(ref_lon) || !PX4_ISFINITE(ref_alt)) {
+		return;
+	}
+
+	MapProjection ref{ref_lat, ref_lon};
+
+	// without a global reference, navigate on the local position (same convention as FlightTaskAuto)
+	if (!xy_global && _local_pos.xy_valid) {
+		ref.reproject(_local_pos.x, _local_pos.y, _global_pos.lat, _global_pos.lon);
+		_global_pos.timestamp = _local_pos.timestamp;
+	}
+
+	if (!z_global && _local_pos.z_valid) {
+		_global_pos.alt = ref_alt - _local_pos.z;
+		_global_pos.timestamp = _local_pos.timestamp;
+	}
+
+	// a change between "no global reference" and "global reference" keeps the local position:
+	// handle it like a reset and re-express the stored targets
+	if (_global_ref_initialized && ((xy_global != _global_ref_xy_global) || (z_global != _global_ref_z_global))) {
+		PX4_INFO("global reference %s, re-expressing targets", (xy_global || z_global) ? "set" : "cleared");
+
+		position_setpoint_triplet_s *const triplets[] {&_pos_sp_triplet, &_reposition_triplet, &_takeoff_triplet};
+
+		for (position_setpoint_triplet_s *triplet : triplets) {
+			shiftSetpoint(triplet->previous, _global_ref, _global_ref_alt, ref, ref_alt);
+			shiftSetpoint(triplet->current, _global_ref, _global_ref_alt, ref, ref_alt);
+			shiftSetpoint(triplet->next, _global_ref, _global_ref_alt, ref, ref_alt);
+		}
+
+		for (NavigatorMode *mode : _navigation_mode_array) {
+			if (mode) {
+				mode->shiftGlobalReference(_global_ref, _global_ref_alt, ref, ref_alt);
+			}
+		}
+
+		_pos_sp_triplet_updated = true;
+	}
+
+	_global_ref = ref;
+	_global_ref_alt = ref_alt;
+	_global_ref_xy_global = xy_global;
+	_global_ref_z_global = z_global;
+	_global_ref_initialized = true;
 }
 
 void Navigator::publish_position_setpoint_triplet()

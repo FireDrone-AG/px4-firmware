@@ -188,6 +188,19 @@ private:
 	float _reference_altitude{NAN}; /**< Altitude relative to ground. */
 	hrt_abstime _time_stamp_reference{0}; /**< time stamp when last reference update occured. */
 
+	// A change between "no global reference" and "global reference" (xy_global / z_global) keeps the local
+	// position (e.g. first GNSS origin, failstate restart). It is handled like an EKF reset: the current
+	// triplet keeps the reference it was received with until the navigator sends a different one.
+	bool _reference_valid{false};
+	bool _reference_xy_global{false};
+	bool _reference_z_global{false};
+	bool _keep_triplet_reference{false};
+	MapProjection _triplet_reference_position{};
+	float _triplet_reference_altitude{NAN};
+	double _triplet_raw_lat{static_cast<double>(NAN)};
+	double _triplet_raw_lon{static_cast<double>(NAN)};
+	float _triplet_raw_alt{NAN};
+
 	WeatherVane _weathervane{this}; /**< weathervane library, used to implement a yaw control law that turns the vehicle nose into the wind */
 
 	matrix::Vector3f _initial_land_position;

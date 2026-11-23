@@ -61,6 +61,9 @@ class Navigator;
 class MissionBlock : public NavigatorMode
 {
 public:
+	void shiftGlobalReference(const MapProjection &old_ref, float old_ref_alt,
+				  const MapProjection &new_ref, float new_ref_alt) override;
+
 	/**
 	 * Constructor
 	 */
