@@ -168,6 +168,11 @@ void Ekf::controlFusionModes(const imuSample &imu_delayed)
 	controlFakePosFusion();
 	controlFakeHgtFusion();
 
+#if defined(CONFIG_EKF2_GNSS)
+	// keep the GNSS rejoin window consistent with resets done during this cycle
+	updateGnssRejoinResetTracking();
+#endif // CONFIG_EKF2_GNSS
+
 	// check if we are no longer fusing measurements that directly constrain velocity drift
 	updateDeadReckoningStatus();
 

@@ -103,6 +103,7 @@
 #endif // CONFIG_EKF2_BAROMETER
 
 #if defined(CONFIG_EKF2_GNSS)
+# include <uORB/topics/estimator_gnss_rejoin.h>
 # include <uORB/topics/estimator_gps_status.h>
 # include <uORB/topics/sensor_gps.h>
 #endif // CONFIG_EKF2_GNSS
@@ -221,6 +222,7 @@ private:
 	float altAmslToEllipsoid(float amsl_alt) const;
 
 	void PublishGpsStatus(const hrt_abstime &timestamp);
+	void PublishGnssRejoin(const hrt_abstime &timestamp);
 	void PublishGnssHgtBias(const hrt_abstime &timestamp);
 	void PublishYawEstimatorStatus(const hrt_abstime &timestamp);
 	void UpdateGpsSample(ekf2_timestamps_s &ekf2_timestamps);
@@ -500,6 +502,9 @@ private:
 
 	uORB::PublicationMulti<estimator_bias_s> _estimator_gnss_hgt_bias_pub{ORB_ID(estimator_gnss_hgt_bias)};
 	uORB::PublicationMulti<estimator_gps_status_s> _estimator_gps_status_pub{ORB_ID(estimator_gps_status)};
+	uORB::PublicationMulti<estimator_gnss_rejoin_s> _estimator_gnss_rejoin_pub{ORB_ID(estimator_gnss_rejoin)};
+	hrt_abstime _last_gnss_rejoin_published{0};
+	hrt_abstime _last_gnss_rejoin_publish_time{0};
 	uORB::PublicationMulti<estimator_aid_source1d_s> _estimator_aid_src_gnss_hgt_pub{ORB_ID(estimator_aid_src_gnss_hgt)};
 	uORB::PublicationMulti<estimator_aid_source2d_s> _estimator_aid_src_gnss_pos_pub{ORB_ID(estimator_aid_src_gnss_pos)};
 	uORB::PublicationMulti<estimator_aid_source3d_s> _estimator_aid_src_gnss_vel_pub{ORB_ID(estimator_aid_src_gnss_vel)};
@@ -563,6 +568,14 @@ private:
 
 		(ParamExtFloat<px4::params::EKF2_GPS_P_GATE>) _param_ekf2_gps_p_gate,
 		(ParamExtFloat<px4::params::EKF2_GPS_V_GATE>) _param_ekf2_gps_v_gate,
+
+		(ParamExtFloat<px4::params::EKF2_GPS_RJ_K>) _param_ekf2_gps_rj_k,
+		(ParamExtFloat<px4::params::EKF2_GPS_RJ_YSD>) _param_ekf2_gps_rj_ysd,
+		(ParamExtFloat<px4::params::EKF2_GPS_RJ_VMIN>) _param_ekf2_gps_rj_vmin,
+		(ParamExtFloat<px4::params::EKF2_GPS_RJ_YRST>) _param_ekf2_gps_rj_yrst,
+		(ParamExtFloat<px4::params::EKF2_GPS_RJ_PRST>) _param_ekf2_gps_rj_prst,
+		(ParamExtFloat<px4::params::EKF2_GPS_RJ_HRST>) _param_ekf2_gps_rj_hrst,
+		(ParamExtFloat<px4::params::EKF2_GPS_RJ_TOUT>) _param_ekf2_gps_rj_tout,
 
 		(ParamExtInt<px4::params::EKF2_GPS_CHECK>) _param_ekf2_gps_check,
 		(ParamExtFloat<px4::params::EKF2_REQ_EPH>)    _param_ekf2_req_eph,
@@ -684,6 +697,9 @@ private:
 		(ParamExtInt<px4::params::EKF2_EV_QMIN>) _param_ekf2_ev_qmin,
 		(ParamExtFloat<px4::params::EKF2_EVP_NOISE>)
 		_param_ekf2_evp_noise, ///< default position observation noise for exernal vision measurements (m)
+		(ParamExtFloat<px4::params::EKF2_EVP_B_NOISE>) _param_ekf2_evp_b_noise,
+		(ParamExtFloat<px4::params::EKF2_EVH_B_NOISE>) _param_ekf2_evh_b_noise,
+		(ParamExtInt<px4::params::EKF2_EV_B_BOOST>) _param_ekf2_ev_b_boost,
 		(ParamExtFloat<px4::params::EKF2_EVV_NOISE>)
 		_param_ekf2_evv_noise, ///< default velocity observation noise for exernal vision measurements (m/s)
 		(ParamExtFloat<px4::params::EKF2_EVA_NOISE>)

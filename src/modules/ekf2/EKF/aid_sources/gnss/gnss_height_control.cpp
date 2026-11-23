@@ -85,6 +85,26 @@ void Ekf::controlGnssHeightFusion(const gnssSample &gps_sample)
 						measurement_var + bias_est.getBiasVar(),
 						math::max(_params.ekf2_gps_p_gate, 1.f));
 
+		if (isGnssStrictMode()) {
+			// strict mode: GNSS height is started only by the rejoin (joinGnss) and stopped by
+			// controlGnssStrictMode(). Here it is only fused, without resets or fault latches.
+			if (_control_status.flags.gps_hgt) {
+				if ((_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::VPOS)) && measurement_valid) {
+					bias_est.setMaxStateNoise(sqrtf(measurement_var));
+					bias_est.setProcessNoiseSpectralDensity(_params.gps_hgt_bias_nsd);
+					bias_est.fuseBias(measurement - _gpos.altitude(), measurement_var + P(State::pos.idx + 2, State::pos.idx + 2));
+
+					fuseVerticalPosition(aid_src);
+
+				} else {
+					ECL_WARN("stopping %s height fusion, disabled or invalid", HGT_SRC_NAME);
+					stopGpsHgtFusion();
+				}
+			}
+
+			return;
+		}
+
 		// determine if we should use height aiding
 		const bool common_conditions_passing = measurement_valid
 						       && _local_origin_lat_lon.isInitialized()
@@ -210,6 +230,7 @@ void Ekf::controlGnssHeightFusion(const gnssSample &gps_sample)
 		}
 
 	} else if (_control_status.flags.gps_hgt
+		   && !isGnssStrictMode() // strict mode: data timeout handled by controlGnssStrictMode()
 		   && !isNewestSampleRecent(_time_last_gps_buffer_push, 2 * GNSS_MAX_INTERVAL)) {
 		// No data anymore. Stop until it comes back.
 		ECL_WARN("stopping %s height fusion, no data", HGT_SRC_NAME);

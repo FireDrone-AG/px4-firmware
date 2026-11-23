@@ -109,25 +109,24 @@ TEST_F(EkfGpsTest, gpsTimeout)
 
 TEST_F(EkfGpsTest, gpsStrictInFlightChecks)
 {
-	// GIVEN: EKF that fuses GPS in strict mode, in air
+	// GIVEN: EKF that fuses GPS, switched to strict mode in air
 	EXPECT_TRUE(_ekf_wrapper.isIntendingGpsFusion());
 	_ekf_wrapper.setGnssStrictMode();
 	_ekf->set_in_air_status(true);
 	_ekf->set_vehicle_at_rest(false);
 	_sensor_simulator.runSeconds(1);
 	EXPECT_TRUE(_ekf->gps_checks_passed());
+	EXPECT_TRUE(_ekf_wrapper.isIntendingGpsFusion());
 
 	// WHEN: the number of satellites drops below EKF2_REQ_NSATS
 	_sensor_simulator._gps.setNumberOfSatellites(3);
 	_sensor_simulator.runSeconds(0.5);
 
-	// THEN: the in-flight checks fail immediately (unlike the relaxed checks)
+	// THEN: the in-flight checks fail immediately and GNSS fusion stops at once
 	EXPECT_FALSE(_ekf->gps_checks_passed());
 	EXPECT_TRUE(_ekf->gps_check_fail_status_flags().nsats);
-
-	// AND: the GNSS fusion stops after the fusion timeout
-	_sensor_simulator.runSeconds(8);
 	EXPECT_FALSE(_ekf_wrapper.isIntendingGpsFusion());
+	EXPECT_EQ(_ekf->gnss_rejoin_status().last_stop_reason, estimator::GnssRejoinStopReason::kChecks);
 
 	// WHEN: the number of satellites is good again
 	_sensor_simulator._gps.setNumberOfSatellites(16);
@@ -137,10 +136,13 @@ TEST_F(EkfGpsTest, gpsStrictInFlightChecks)
 	EXPECT_FALSE(_ekf->gps_checks_passed());
 	EXPECT_FALSE(_ekf_wrapper.isIntendingGpsFusion());
 
-	// AND: the GNSS fusion restarts once the checks passed for the health time
+	// AND: the checks pass after the health time, but without another source of horizontal
+	// aiding the rejoin is not possible and GNSS is not used again
 	_sensor_simulator.runSeconds(4);
 	EXPECT_TRUE(_ekf->gps_checks_passed());
-	EXPECT_TRUE(_ekf_wrapper.isIntendingGpsFusion());
+	EXPECT_FALSE(_ekf_wrapper.isIntendingGpsFusion());
+	EXPECT_FALSE(_ekf->gnss_rejoin_status().preconditions_ok);
+	EXPECT_EQ(_ekf->gnss_rejoin_status().pilot_state, 0);
 }
 
 TEST_F(EkfGpsTest, gpsFixLoss)

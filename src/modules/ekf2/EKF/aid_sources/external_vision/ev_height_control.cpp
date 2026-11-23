@@ -98,6 +98,7 @@ void Ekf::controlEvHeightFusion(const imuSample &imu_sample, const extVisionSamp
 	if (measurement_valid && quality_sufficient) {
 		bias_est.setMaxStateNoise(sqrtf(measurement_var));
 		bias_est.setProcessNoiseSpectralDensity(_params.ev_hgt_bias_nsd);
+		bias_est.setOffsetBoostEnabled(_params.ev_bias_boost & (1 << 1));
 		bias_est.fuseBias(measurement + _gpos.altitude(), measurement_var + P(State::pos.idx + 2, State::pos.idx + 2));
 	}
 
@@ -115,9 +116,10 @@ void Ekf::controlEvHeightFusion(const imuSample &imu_sample, const extVisionSamp
 					ECL_INFO("reset to %s", AID_SRC_NAME);
 
 					if (_height_sensor_ref == HeightSensor::EV) {
+						// EV defines local z: altitude = origin - z (the origin is 0 if not set)
 						_information_events.flags.reset_hgt_to_ev = true;
-						resetAltitudeTo(-measurement, measurement_var);
-						bias_est.reset();
+						resetAltitudeTo(getEkfGlobalOriginAltitude() - measurement, measurement_var);
+						bias_est.setBias(_gpos.altitude() + measurement);
 
 					} else {
 						bias_est.setBias(_gpos.altitude() + measurement);
@@ -145,7 +147,8 @@ void Ekf::controlEvHeightFusion(const imuSample &imu_sample, const extVisionSamp
 				// All height sources are failing
 				ECL_WARN("%s fusion reset required, all height sources failing", AID_SRC_NAME);
 				_information_events.flags.reset_hgt_to_ev = true;
-				resetAltitudeTo(-measurement - bias_est.getBias(), measurement_var);
+				// bias = altitude + measurement (down)
+				resetAltitudeTo(bias_est.getBias() - measurement, measurement_var);
 				bias_est.setBias(_gpos.altitude() + measurement);
 
 				aid_src.time_last_fuse = _time_delayed_us;
@@ -166,13 +169,27 @@ void Ekf::controlEvHeightFusion(const imuSample &imu_sample, const extVisionSamp
 	} else {
 		if (starting_conditions_passing) {
 			// activate fusion, only reset if necessary
-			if (_params.ekf2_hgt_ref == static_cast<int32_t>(HeightSensor::EV)) {
+			bool restart_in_ev_frame = (_params.ekf2_hgt_ref == static_cast<int32_t>(HeightSensor::EV));
+
+#if defined(CONFIG_EKF2_GNSS)
+
+			// strict GNSS mode: radar (re)starting without GNSS height (boot or after a failstate)
+			// discards the learned offsets and starts again in the radar frame (O17)
+			if (isGnssStrictMode() && !_control_status.flags.gps_hgt) {
+				restart_in_ev_frame = true;
+			}
+
+#endif // CONFIG_EKF2_GNSS
+
+			if (restart_in_ev_frame) {
 				ECL_INFO("starting %s fusion, resetting state", AID_SRC_NAME);
 				_information_events.flags.reset_hgt_to_ev = true;
-				resetAltitudeTo(-measurement, measurement_var);
+				// EV defines local z: altitude = origin - z (the origin is 0 if not set)
+				resetAltitudeTo(getEkfGlobalOriginAltitude() - measurement, measurement_var);
 
 				_height_sensor_ref = HeightSensor::EV;
 				bias_est.reset();
+				bias_est.setBias(_gpos.altitude() + measurement);
 
 			} else {
 				ECL_INFO("starting %s fusion", AID_SRC_NAME);

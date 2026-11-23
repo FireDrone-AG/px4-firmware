@@ -44,8 +44,38 @@ void Ekf::controlGpsFusion(const imuSample &imu_delayed)
 	_fc.gps.available = (_params.ekf2_gps_ctrl != 0);
 
 	if (!_gps_buffer || !_fc.gps.intended()) {
+		if (_gnss_strict_mode_active
+		    && (_control_status.flags.gnss_vel || _control_status.flags.gnss_pos || _control_status.flags.gps_hgt)) {
+			stopGnssStrict(GnssRejoinStopReason::kNotIntended);
+		}
+
 		stopGnssFusion();
+
+		if (_gps_buffer && isGnssStrictMode()) {
+			// GNSS fusion disabled: run the rejoin in shadow (evaluate and log, never fuse)
+			controlGnssStrictMode(imu_delayed, true);
+
+		} else if (_gnss_strict_mode_active) {
+			_gnss_strict_mode_active = false;
+			clearGnssRejoinWindow(false);
+			_gnss_rj_status.in_use = false;
+			_gnss_rj_status.shadow = false;
+			_gnss_rj_status.pilot_state = 0;
+		}
+
 		return;
+	}
+
+	if (isGnssStrictMode()) {
+		// strict checks, GNSS only joins through the rejoin procedure, no EKF-GSF
+		controlGnssStrictMode(imu_delayed, false);
+		return;
+	}
+
+	if (_gnss_strict_mode_active) {
+		// leaving strict mode, the fusion flags are handed over to the logic below
+		_gnss_strict_mode_active = false;
+		clearGnssRejoinWindow(false);
 	}
 
 	if (!gyro_bias_inhibited()) {

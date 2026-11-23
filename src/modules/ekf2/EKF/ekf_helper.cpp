@@ -105,13 +105,20 @@ bool Ekf::setLatLonOrigin(const double latitude, const double longitude, const f
 	}
 
 	if (!_local_origin_lat_lon.isInitialized() && isLocalHorizontalPositionValid()) {
-		// Already navigating in a local frame, use the origin to initialize global position
+		// Already navigating in a local frame, use the origin to initialize global position.
+		// The local position does not change: only move the datum, without a counted reset and
+		// without shifting the EV position bias (O29: a counted reset of the old position projected
+		// with the new origin made the position controller fly away and the EV bias jump).
 		const Vector2f pos_prev = getLocalHorizontalPosition();
 		_local_origin_lat_lon.initReference(latitude, longitude, _time_delayed_us);
 		double new_latitude;
 		double new_longitude;
 		_local_origin_lat_lon.reproject(pos_prev(0), pos_prev(1), new_latitude, new_longitude);
-		resetHorizontalPositionTo(new_latitude, new_longitude, hpos_var);
+		_gpos.setLatLonDeg(new_latitude, new_longitude);
+		_output_predictor.resetLatLonTo(new_latitude, new_longitude);
+		_last_known_gpos.setLatLonDeg(new_latitude, new_longitude);
+
+		(void)hpos_var; // the uncertainty of the local position is unchanged
 
 	} else {
 		// Simply move the origin and compute the change in local position
@@ -135,12 +142,18 @@ bool Ekf::setAltOrigin(const float altitude, const float vpos_var)
 		 (double)altitude);
 
 	if (!PX4_ISFINITE(_local_origin_alt) && isLocalVerticalPositionValid()) {
+		// local z does not change: only move the datum, without a counted reset (O29)
+#if defined(CONFIG_EKF2_GNSS)
+		shiftAltitudeDatum(altitude);
+#else
 		const float local_alt_prev = _gpos.altitude();
 		_local_origin_alt = altitude;
 		resetAltitudeTo(local_alt_prev + _local_origin_alt);
+#endif // CONFIG_EKF2_GNSS
+		(void)vpos_var;
 
 	} else {
-		const float delta_origin_alt = altitude - _local_origin_alt;
+		const float delta_origin_alt = altitude - getEkfGlobalOriginAltitude(); // previous origin is 0 if not set
 		_local_origin_alt = altitude;
 		updateVerticalPositionResetStatus(-delta_origin_alt);
 
@@ -225,6 +238,19 @@ bool Ekf::initialiseAltitudeTo(const float altitude, const float vpos_var)
 	if (!checkAltitudeValidity(altitude)) {
 		return false;
 	}
+
+#if defined(CONFIG_EKF2_GNSS)
+
+	if (!PX4_ISFINITE(_local_origin_alt) && isLocalVerticalPositionValid()) {
+		// already navigating in a local frame: local z does not change, only move the datum
+		// without a counted reset (O29)
+		shiftAltitudeDatum(altitude - _gpos.altitude());
+		ECL_INFO("Origin alt=%.3f", (double)_local_origin_alt);
+		(void)vpos_var;
+		return true;
+	}
+
+#endif // CONFIG_EKF2_GNSS
 
 	if (!PX4_ISFINITE(_local_origin_alt)) {
 		const float local_alt_prev = _gpos.altitude();

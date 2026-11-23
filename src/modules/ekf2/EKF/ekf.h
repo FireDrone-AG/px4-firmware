@@ -47,6 +47,7 @@
 
 #if defined(CONFIG_EKF2_GNSS)
 # include "aid_sources/gnss/gnss_checks.hpp"
+# include "aid_sources/gnss/gnss_rejoin.hpp"
 # include "yaw_estimator/EKFGSF_yaw.h"
 #endif // CONFIG_EKF2_GNSS
 
@@ -408,6 +409,9 @@ public:
 	const decltype(GnssChecks::gps_check_fail_status_u::flags) &gps_check_fail_status_flags() const { return _gnss_checks.getFailStatus().flags; }
 
 	bool gps_checks_passed() const { return _gnss_checks.passed(); };
+
+	bool isGnssStrictMode() const { return _params.ekf2_gps_mode == static_cast<int32_t>(GnssMode::kStrict); }
+	const GnssRejoinStatus &gnss_rejoin_status() const { return _gnss_rj_status; }
 
 	const BiasEstimator::status &getGpsHgtBiasEstimatorStatus() const { return _gps_hgt_b_est.getStatus(); }
 
@@ -907,6 +911,9 @@ private:
 			       bool reset, estimator_aid_source2d_s &aid_src);
 
 	void stopEvPosFusion();
+	// EV position in the EKF frame depends on the EKF heading (rotation of the EV frame): fuse it with the
+	// heading term in the Jacobian, but correct only the position states (O32)
+	bool fuseEvPositionPositionOnly(estimator_aid_source2d_s &aid_src, const Vector2f &rotated_ev_pos);
 	void stopEvHgtFusion();
 	void stopEvVelFusion();
 	void stopEvYawFusion();
@@ -939,6 +946,33 @@ private:
 	void controlGnssHeightFusion(const gnssSample &gps_sample);
 	void stopGpsHgtFusion();
 	bool isGnssHgtResetAllowed();
+
+	// strict mode: GNSS only (re)joins through the consistency checked rejoin (gnss_rejoin_control.cpp)
+	void controlGnssStrictMode(const imuSample &imu_delayed, bool shadow);
+	bool isGnssRejoinPreconditionPassing(bool shadow) const;
+	void pushGnssRejoinSample(const gnssSample &gnss_sample);
+	void evaluateGnssRejoin(MapProjection &proj, GnssRejoinWindow::Result &res) const;
+	void joinGnss(const GnssRejoinWindow::Result &res, const MapProjection &proj);
+	void stopGnssStrict(GnssRejoinStopReason reason);
+	void clearGnssRejoinWindow(bool count = true);
+	void updateGnssRejoinResetTracking();
+	void updateGnssRejoinPilotState();
+
+	// move the altitude datum (state, origin, biases, terrain) without changing local z or counting a reset
+	void shiftAltitudeDatum(float delta_alt);
+
+	// failstate restart (O31): forget the global origin and the heading alignment, keep the local frame
+	void resetNavigationFrameAfterFailstate();
+
+	GnssRejoinWindow _gnss_rj_window{};
+	GnssRejoinStatus _gnss_rj_status{};
+	Vector2f _gnss_rj_pos_accum{};          ///< accumulated horizontal position reset deltas since the window was cleared (m)
+	float _gnss_rj_alt_accum{0.f};          ///< accumulated altitude reset deltas since the window was cleared (m)
+	StateResetCounts _gnss_rj_reset_count_seen{};
+	bool _gnss_rj_origin_initialized{false};
+	uint64_t _gnss_rj_origin_time{0};       ///< reference timestamp of the origin, changes when the origin is (re)set
+	float _gnss_rj_origin_alt{NAN};
+	bool _gnss_strict_mode_active{false};
 
 # if defined(CONFIG_EKF2_GNSS_YAW)
 	void controlGnssYawFusion(const gnssSample &gps_sample);

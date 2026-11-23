@@ -77,6 +77,7 @@ public:
 	void reset()
 	{
 		_passed = false;
+		_last_sample_failed = true;
 		_time_last_pass_us = 0;
 		_time_last_fail_us = 0;
 		resetDriftFilters();
@@ -90,6 +91,9 @@ public:
 	bool initialChecksPassed() const { return _initial_checks_passed; }
 	uint64_t getLastPassUs() const { return _time_last_pass_us; }
 	uint64_t getLastFailUs() const { return _time_last_fail_us; }
+
+	// true if the most recent sample given to run() failed the (per-sample) checks
+	bool lastSampleFailed() const { return _last_sample_failed; }
 
 	const gps_check_fail_status_u &getFailStatus() const { return _check_fail_status; }
 
@@ -146,6 +150,7 @@ private:
 	uint64_t _time_last_pass_us{0};
 	bool _initial_checks_passed{false};
 	bool _passed{false};
+	bool _last_sample_failed{true};
 
 	struct Params {
 		const int32_t &check_mask;

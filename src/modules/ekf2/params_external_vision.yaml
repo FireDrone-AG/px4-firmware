@@ -76,6 +76,46 @@ parameters:
       min: 0.01
       unit: m
       decimal: 2
+    EKF2_EVP_B_NOISE:
+      description:
+        short: Process noise for the vision horizontal position bias
+        long: 'Random walk of the bias between vision position and the other horizontal position
+          source (GNSS), estimated while both are fused. Lower values make the vision position
+          follow its own drift for longer before the other source corrects it. Should match the
+          horizontal drift rate of the vision system.'
+      type: float
+      default: 0.13
+      min: 0.0
+      max: 1.0
+      unit: m/s/sqrt(Hz)
+      decimal: 3
+    EKF2_EVH_B_NOISE:
+      description:
+        short: Process noise for the vision height bias
+        long: 'Random walk of the bias between vision height and the height reference (e.g. GNSS),
+          estimated while vision height is fused and is not the reference. Sets how fast reference
+          height wander is passed into the altitude estimate: the crossover time constant scales
+          with 1/EKF2_EVH_B_NOISE. Should match the vertical drift rate of the vision system.'
+      type: float
+      default: 0.13
+      min: 0.0
+      max: 1.0
+      unit: m/s/sqrt(Hz)
+      decimal: 3
+    EKF2_EV_B_BOOST:
+      description:
+        short: Vision bias offset boost
+        long: 'Set bits to enable the x1000 process noise boost of the vision bias estimators while
+          their innovations keep the same sign for longer than about 10 s. Reference sources whose
+          error is correlated over minutes (GNSS height) trigger it almost permanently, which
+          undoes a low EKF2_EVH_B_NOISE or EKF2_EVP_B_NOISE.'
+      type: bitmask
+      bit:
+        0: Horizontal position bias
+        1: Height bias
+      default: 3
+      min: 0
+      max: 3
     EKF2_EVV_GATE:
       description:
         short: Gate size for vision velocity estimate fusion

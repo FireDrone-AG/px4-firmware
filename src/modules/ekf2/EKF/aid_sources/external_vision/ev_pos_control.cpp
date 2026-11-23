@@ -37,6 +37,7 @@
  */
 
 #include "ekf.h"
+#include "ekf_derivation/generated/compute_yaw_innov_var_and_h.h"
 
 static constexpr const char *EV_AID_SRC_NAME = "EV position";
 
@@ -176,7 +177,8 @@ void Ekf::controlEvPosFusion(const imuSample &imu_sample, const extVisionSample 
 	// using its current state to compute the horizontal position innovation
 	if (measurement_valid && quality_sufficient && _ev_pos_b_est.fusionActive()) {
 		_ev_pos_b_est.setMaxStateNoise(Vector2f(sqrtf(measurement_var(0)), sqrtf(measurement_var(1))));
-		_ev_pos_b_est.setProcessNoiseSpectralDensity(_params.ev_hgt_bias_nsd); // TODO
+		_ev_pos_b_est.setProcessNoiseSpectralDensity(_params.ev_pos_bias_nsd);
+		_ev_pos_b_est.setOffsetBoostEnabled(_params.ev_bias_boost & (1 << 0));
 		_ev_pos_b_est.fuseBias(measurement - position_estimate,
 				       measurement_var + Vector2f(getStateVariance<State::pos>()));
 	}
@@ -224,7 +226,19 @@ void Ekf::startEvPosFusion(const Vector2f &measurement, const Vector2f &measurem
 		//_position_sensor_ref = PositionSensor::EV;
 		_information_events.flags.reset_pos_to_vision = true;
 
-		if (_ev_pos_b_est.wasFusionActive()) {
+		bool reuse_bias = _ev_pos_b_est.wasFusionActive();
+
+#if defined(CONFIG_EKF2_GNSS)
+
+		// strict GNSS mode: radar (re)starting without GNSS (boot or after a failstate) discards the
+		// learned GNSS-radar offset and starts again in the radar frame (O17)
+		if (isGnssStrictMode()) {
+			reuse_bias = false;
+		}
+
+#endif // CONFIG_EKF2_GNSS
+
+		if (reuse_bias) {
 			// if we used a bias before, lets make use of it again to align our sensor.
 			// We are not activing fusion of the bias, because we do not have a another sensor aiding position
 			resetHorizontalPositionTo(measurement - _ev_pos_b_est.getBias(), measurement_var + _ev_pos_b_est.getBiasVar());
@@ -269,7 +283,17 @@ void Ekf::updateEvPosFusion(const Vector2f &measurement, const Vector2f &measure
 		}
 
 	} else if (quality_sufficient) {
-		fuseHorizontalPosition(aid_src);
+#if defined(CONFIG_EKF2_GNSS)
+
+		if (isGnssStrictMode()) {
+			// strict GNSS mode: the FRD position is rotated into the EKF frame with the EKF's own heading (O32)
+			fuseEvPositionPositionOnly(aid_src, measurement);
+
+		} else
+#endif // CONFIG_EKF2_GNSS
+		{
+			fuseHorizontalPosition(aid_src);
+		}
 
 	} else {
 		aid_src.innovation_rejected = true;
@@ -329,4 +353,70 @@ void Ekf::stopEvPosFusion()
 	if (_control_status.flags.ev_pos) {
 		_control_status.flags.ev_pos = false;
 	}
+}
+
+bool Ekf::fuseEvPositionPositionOnly(estimator_aid_source2d_s &aid_src, const Vector2f &rotated_ev_pos)
+{
+	// derivative of the EKF heading w.r.t. the error state
+	VectorState H_yaw;
+	float yaw_innov_var_unused = 0.f;
+	sym::ComputeYawInnovVarAndH(_state.vector(), P, 0.f, &yaw_innov_var_unused, &H_yaw);
+
+	// d(R(yaw) p)/d(yaw) for a rotation about the down axis
+	const Vector2f d_meas_d_yaw(-rotated_ev_pos(1), rotated_ev_pos(0));
+
+	// innovation = position - R(yaw) p_ev + bias
+	VectorState H[2];
+
+	for (unsigned i = 0; i < 2; i++) {
+		H[i] = -d_meas_d_yaw(i) * H_yaw;
+		H[i](State::pos.idx + i) += 1.f;
+	}
+
+	// innovation test including the heading uncertainty times the distance to the EV origin
+	const float gate = math::max(_params.ekf2_evp_gate, 1.f);
+	bool rejected = false;
+
+	for (unsigned i = 0; i < 2; i++) {
+		aid_src.innovation_variance[i] = H[i].dot(P * H[i]) + aid_src.observation_variance[i];
+		aid_src.test_ratio[i] = sq(aid_src.innovation[i]) / (sq(gate) * aid_src.innovation_variance[i]);
+		rejected |= !(aid_src.test_ratio[i] < 1.f);
+	}
+
+	aid_src.innovation_rejected = rejected;
+
+	if (rejected) {
+		aid_src.fused = false;
+		return false;
+	}
+
+	const LatLonAlt measurement(aid_src.observation[0], aid_src.observation[1], _gpos.altitude());
+
+	for (unsigned i = 0; i < 2; i++) {
+		const VectorState PH = P * H[i];
+		const float innov_var = H[i].dot(PH) + aid_src.observation_variance[i];
+
+		if (!(innov_var >= aid_src.observation_variance[i])) {
+			// numerical problem
+			continue;
+		}
+
+		aid_src.innovation[i] = (_gpos - measurement)(i);
+
+		// correct only the position states ("consider" all others); the Joseph form update keeps
+		// the covariance consistent for this sub-optimal gain
+		VectorState K;
+
+		for (unsigned row = State::pos.idx; row < State::pos.idx + 2; row++) {
+			K(row) = PH(row) / innov_var;
+		}
+
+		measurementUpdate(K, H[i], aid_src.observation_variance[i], aid_src.innovation[i]);
+	}
+
+	aid_src.fused = true;
+	aid_src.time_last_fuse = _time_delayed_us;
+	_time_last_hor_pos_fuse = _time_delayed_us;
+
+	return true;
 }

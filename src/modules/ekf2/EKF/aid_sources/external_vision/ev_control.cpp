@@ -64,6 +64,19 @@ void Ekf::controlExternalVisionFusion(const imuSample &imu_sample)
 				    || (_ext_vision_buffer->get_newest().quality >= _params.ekf2_ev_qmin)) // newest quality sufficient
 				&& isNewestSampleRecent(_time_last_ext_vision_buffer_push, EV_MAX_INTERVAL);
 
+#if defined(CONFIG_EKF2_GNSS)
+
+		// strict GNSS mode: radar returning after a failstate (no horizontal aiding at all, no GNSS)
+		// restarts like a boot without GNSS and magnetometer: no global origin, no heading alignment (O31)
+		if (isGnssStrictMode() && starting_conditions_passing
+		    && !(_control_status.flags.ev_pos || _control_status.flags.ev_vel || _control_status.flags.ev_hgt)
+		    && !(_control_status.flags.gnss_pos || _control_status.flags.gnss_vel)
+		    && _control_status_prev.flags.inertial_dead_reckoning) {
+			resetNavigationFrameAfterFailstate();
+		}
+
+#endif // CONFIG_EKF2_GNSS
+
 		updateEvAttitudeErrorFilter(ev_sample, ev_reset);
 
 		controlEvYawFusion(imu_sample, ev_sample, starting_conditions_passing, ev_reset, quality_sufficient, _aid_src_ev_yaw);
@@ -123,7 +136,16 @@ void Ekf::updateEvAttitudeErrorFilter(extVisionSample &ev_sample, bool ev_reset)
 		return;
 	}
 
-	if (!_ev_q_error_initialized || ev_reset) {
+	bool use_instantaneous = false;
+
+#if defined(CONFIG_EKF2_GNSS)
+	// strict GNSS mode: use the current EV-to-EKF rotation without low-pass. A low-passed rotation
+	// follows the EKF's own heading with a delay, which turns EV position into a delayed heading
+	// feedback that fights the GNSS heading corrections (O32).
+	use_instantaneous = isGnssStrictMode();
+#endif // CONFIG_EKF2_GNSS
+
+	if (!_ev_q_error_initialized || ev_reset || use_instantaneous) {
 		_ev_q_error_filt.reset(q_error);
 		_ev_q_error_initialized = true;
 

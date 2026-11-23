@@ -58,6 +58,7 @@ public:
 	void setVelocity(const Vector3f &vel);
 	void setPosition(const Vector3f &pos);
 	void setOrientation(const Quatf &quat);
+	void setResetCounter(uint8_t counter) { _vio_data.reset_counter = counter; }
 
 	void setVelocityFrameToLocalNED();
 	void setVelocityFrameToLocalFRD();

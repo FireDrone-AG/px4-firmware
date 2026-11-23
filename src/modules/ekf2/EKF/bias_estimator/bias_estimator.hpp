@@ -90,6 +90,9 @@ public:
 	void setBiasStdDev(float state_noise) { _state_var = state_noise * state_noise; }
 	void setInnovGate(float gate_size) { _gate_size = gate_size; }
 
+	// enable/disable the process noise boost applied while a persistent offset is detected
+	void setOffsetBoostEnabled(bool enabled) { _offset_boost_enabled = enabled; }
+
 	void setMaxStateNoise(float max_noise) { _state_var_max = math::max(sq(0.01f), max_noise * max_noise); }
 
 	float getBias() const { return _state; }
@@ -104,6 +107,7 @@ private:
 	float _state_var{0.1f}; ///< Initial state uncertainty variance (m^2)
 	float _process_psd{1.25e-6f}; ///< State process power spectral density (m^2/s^2/Hz)
 	float _state_var_max{2.f}; ///< Used to constrain the state variance (m^2)
+	bool _offset_boost_enabled{true};
 
 	// Innovation sequence monitoring; used to detect a bias in the state
 	AlphaFilter<float> _signed_innov_test_ratio_lpf;

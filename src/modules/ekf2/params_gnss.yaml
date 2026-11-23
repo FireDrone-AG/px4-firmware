@@ -22,17 +22,105 @@ parameters:
         short: Fusion reset mode
         long: 'Automatic: reset on fusion timeout if no other source of position is available.
           Dead-reckoning: reset on fusion timeout if no source of velocity is available.
-          Strict: as Automatic, but the GNSS quality checks selected by EKF2_GPS_CHECK
-          use the EKF2_REQ_* thresholds and the EKF2_REQ_GPS_H health time in flight
-          as well, instead of the relaxed in-flight checks. Any failed check rejects
-          GNSS until the checks have passed again for EKF2_REQ_GPS_H. The drift and
-          stationary speed checks are skipped in flight.'
+          Strict: the GNSS quality checks selected by EKF2_GPS_CHECK use the EKF2_REQ_*
+          thresholds and the EKF2_REQ_GPS_H health time in flight as well (the drift and
+          stationary speed checks are skipped in flight). GNSS is only used after the rejoin:
+          over a window of EKF2_REQ_GPS_H the heading, position and altitude derived from
+          GNSS must be consistent with the other aiding sources (EKF2_GPS_RJ_*). The heading,
+          position and altitude are then reset or fused once. While in use, a sample failing
+          the checks, no data or no fusion for EKF2_GPS_RJ_TOUT stops all GNSS fusion until
+          the next rejoin. Strict mode needs another source of horizontal aiding (e.g. vision)
+          to rejoin, does not run the EKF-GSF yaw estimator and never resets to GNSS while in use.'
       type: enum
       values:
         0: Automatic
         1: Dead-reckoning
         2: Strict
       default: 0
+    EKF2_GPS_RJ_K:
+      description:
+        short: GNSS rejoin consistency factor
+        long: 'Strict mode only. Over the rejoin window, the RMS scatter of the GNSS velocity
+          residual, of the carried-forward GNSS positions and of the carried-forward GNSS
+          altitudes must each be at most this factor times the RMS accuracy used for fusion
+          (reported accuracy, limited below by EKF2_GPS_V_NOISE, EKF2_GPS_P_NOISE and
+          1.5 x EKF2_GPS_P_NOISE).'
+      type: float
+      default: 1.0
+      min: 0.1
+      max: 10.0
+      decimal: 2
+    EKF2_GPS_RJ_YSD:
+      description:
+        short: GNSS rejoin maximum heading uncertainty
+        long: 'Strict mode only. Maximum 1-sigma uncertainty of the heading correction fitted
+          from GNSS velocity over the rejoin window, or of the EKF heading if the fit is not
+          available, for GNSS to rejoin.'
+      type: float
+      default: 2.0
+      min: 0.1
+      max: 30.0
+      unit: deg
+      decimal: 1
+    EKF2_GPS_RJ_VMIN:
+      description:
+        short: GNSS rejoin minimum speed for the heading fit
+        long: 'Strict mode only. Minimum RMS horizontal speed over the rejoin window to use the
+          heading fitted from GNSS velocity. Guards against constant velocity errors that the
+          scatter does not show. Set to 0 to rely on EKF2_GPS_RJ_YSD only.'
+      type: float
+      default: 0.3
+      min: 0.0
+      max: 5.0
+      unit: m/s
+      decimal: 2
+    EKF2_GPS_RJ_YRST:
+      description:
+        short: GNSS rejoin heading reset threshold
+        long: 'Strict mode only. If the fitted heading correction is larger than this, or the
+          heading was never aligned, the heading is reset at the rejoin. Otherwise GNSS fusion
+          corrects it.'
+      type: float
+      default: 3.0
+      min: 0.0
+      max: 180.0
+      unit: deg
+      decimal: 1
+    EKF2_GPS_RJ_PRST:
+      description:
+        short: GNSS rejoin position reset threshold
+        long: 'Strict mode only. If the GNSS horizontal position offset found at the rejoin is
+          larger than this, the position is reset to GNSS. Otherwise GNSS fusion corrects it.'
+      type: float
+      default: 0.2
+      min: 0.0
+      max: 100.0
+      unit: m
+      decimal: 2
+    EKF2_GPS_RJ_HRST:
+      description:
+        short: GNSS rejoin altitude reset threshold
+        long: 'Strict mode only. If GNSS is the height reference and the altitude offset found
+          at the rejoin is larger than this, the altitude is reset to GNSS. Otherwise GNSS fusion
+          corrects it.'
+      type: float
+      default: 0.5
+      min: 0.0
+      max: 100.0
+      unit: m
+      decimal: 2
+    EKF2_GPS_RJ_TOUT:
+      description:
+        short: GNSS strict mode fusion timeout
+        long: 'Strict mode only. If GNSS velocity, position or height has not been fused for this
+          time (innovations rejected or no data), all GNSS fusion is stopped and GNSS has to go
+          through the rejoin again.'
+      type: float
+      default: 5.0
+      min: 0.5
+      max: 60.0
+      unit: s
+      decimal: 1
     EKF2_GPS_P_NOISE:
       description:
         short: Measurement noise for GNSS position

@@ -85,6 +85,12 @@ public:
 		_bias[0].setProcessNoiseSpectralDensity(nsd);
 		_bias[1].setProcessNoiseSpectralDensity(nsd);
 	}
+
+	void setOffsetBoostEnabled(bool enabled)
+	{
+		_bias[0].setOffsetBoostEnabled(enabled);
+		_bias[1].setOffsetBoostEnabled(enabled);
+	}
 	// void setBiasStdDev(float state_noise) { _state_var = state_noise * state_noise; }
 	// void setInnovGate(float gate_size) { _gate_size = gate_size; }
 

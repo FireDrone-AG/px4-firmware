@@ -45,7 +45,7 @@ void BiasEstimator::predict(const float dt)
 	// Predict state covariance only
 	float delta_state_var = _process_psd * dt;
 
-	if (isOffsetDetected()) {
+	if (_offset_boost_enabled && isOffsetDetected()) {
 		// A bias in the state has been detected by the innovation sequence check
 		// Boost the process noise until the offset is removed
 		delta_state_var *= _process_var_boost_gain;

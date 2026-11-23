@@ -86,6 +86,13 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 	_param_ekf2_gps_p_noise(_params->ekf2_gps_p_noise),
 	_param_ekf2_gps_p_gate(_params->ekf2_gps_p_gate),
 	_param_ekf2_gps_v_gate(_params->ekf2_gps_v_gate),
+	_param_ekf2_gps_rj_k(_params->ekf2_gps_rj_k),
+	_param_ekf2_gps_rj_ysd(_params->ekf2_gps_rj_ysd),
+	_param_ekf2_gps_rj_vmin(_params->ekf2_gps_rj_vmin),
+	_param_ekf2_gps_rj_yrst(_params->ekf2_gps_rj_yrst),
+	_param_ekf2_gps_rj_prst(_params->ekf2_gps_rj_prst),
+	_param_ekf2_gps_rj_hrst(_params->ekf2_gps_rj_hrst),
+	_param_ekf2_gps_rj_tout(_params->ekf2_gps_rj_tout),
 	_param_ekf2_gps_check(_params->ekf2_gps_check),
 	_param_ekf2_req_eph(_params->ekf2_req_eph),
 	_param_ekf2_req_epv(_params->ekf2_req_epv),
@@ -177,6 +184,9 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 	_param_ekf2_ev_ctrl(_params->ekf2_ev_ctrl),
 	_param_ekf2_ev_qmin(_params->ekf2_ev_qmin),
 	_param_ekf2_evp_noise(_params->ekf2_evp_noise),
+	_param_ekf2_evp_b_noise(_params->ev_pos_bias_nsd),
+	_param_ekf2_evh_b_noise(_params->ev_hgt_bias_nsd),
+	_param_ekf2_ev_b_boost(_params->ev_bias_boost),
 	_param_ekf2_evv_noise(_params->ekf2_evv_noise),
 	_param_ekf2_eva_noise(_params->ekf2_eva_noise),
 	_param_ekf2_evv_gate(_params->ekf2_evv_gate),
@@ -255,6 +265,11 @@ void EKF2::AdvertiseTopics()
 	if (_param_ekf2_gps_ctrl.get()) {
 		_estimator_gps_status_pub.advertise();
 		_yaw_est_pub.advertise();
+	}
+
+	// strict mode: also advertised with GNSS fusion disabled (shadow evaluation)
+	if (_param_ekf2_gps_mode.get() == static_cast<int32_t>(GnssMode::kStrict)) {
+		_estimator_gnss_rejoin_pub.advertise();
 	}
 
 #endif // CONFIG_EKF2_GNSS
@@ -864,6 +879,7 @@ void EKF2::Run()
 
 #if defined(CONFIG_EKF2_GNSS)
 			PublishGpsStatus(now);
+			PublishGnssRejoin(now);
 			PublishYawEstimatorStatus(now);
 #endif // CONFIG_EKF2_GNSS
 
@@ -1378,6 +1394,83 @@ void EKF2::PublishGlobalPosition(const hrt_abstime &timestamp)
 }
 
 #if defined(CONFIG_EKF2_GNSS)
+void EKF2::PublishGnssRejoin(const hrt_abstime &timestamp)
+{
+	if (!_ekf.isGnssStrictMode()) {
+		return;
+	}
+
+	const estimator::GnssRejoinStatus &st = _ekf.gnss_rejoin_status();
+
+	// publish on every GNSS sample, and at 1 Hz without GNSS data so that the state stays visible
+	const bool new_sample = (st.time_us != 0) && (st.time_us != _last_gnss_rejoin_published);
+
+	if (!new_sample && (hrt_elapsed_time(&_last_gnss_rejoin_publish_time) < 1_s)) {
+		return;
+	}
+
+	estimator_gnss_rejoin_s msg{};
+	msg.timestamp_sample = st.time_us;
+
+	msg.pilot_state = st.pilot_state;
+	msg.in_use = st.in_use;
+	msg.shadow = st.shadow;
+	msg.shadow_would_join = st.shadow_would_join;
+	msg.shadow_join_count = st.shadow_join_count;
+	msg.preconditions_ok = st.preconditions_ok;
+	msg.checks_passed = st.checks_passed;
+	msg.sample_failed_checks = st.sample_failed_checks;
+	msg.time_since_check_fail = st.time_since_check_fail;
+
+	const auto &w = st.window;
+	msg.window_samples = w.n;
+	msg.window_span = w.span_s;
+	msg.heading_required = st.heading_required;
+	msg.pos_required = st.pos_required;
+	msg.hgt_required = st.alt_required;
+	msg.heading_ready = w.heading_ready;
+	msg.pos_ready = w.pos_ready;
+	msg.hgt_ready = w.alt_ready;
+	msg.heading_source = static_cast<uint8_t>(w.heading_source);
+	msg.heading_fit = w.heading_fit;
+	msg.heading_fit_std = w.heading_fit_std;
+	msg.ekf_heading_std = sqrtf(fmaxf(_ekf.getYawVar(), 0.f));
+	msg.speed_rms = w.speed_rms;
+	msg.vel_resid_fit = w.vel_resid_fit;
+	msg.vel_resid_zero = w.vel_resid_zero;
+	msg.vel_acc_rms = w.vel_acc_rms;
+
+	st.pos_offset.copyTo(msg.pos_offset);
+	msg.pos_scatter = w.pos_scatter;
+	msg.pos_acc_rms = w.pos_acc_rms;
+	msg.hgt_offset = st.alt_offset;
+	msg.hgt_scatter = w.alt_scatter;
+	msg.hgt_acc_rms = w.alt_acc_rms;
+
+	msg.time_since_vel_fuse = st.time_since_vel_fuse;
+	msg.time_since_pos_fuse = st.time_since_pos_fuse;
+	msg.time_since_hgt_fuse = st.time_since_hgt_fuse;
+
+	msg.join_heading_correction = st.join_heading_correction;
+	msg.join_heading_source = static_cast<uint8_t>(st.join_heading_source);
+	st.join_pos_offset.copyTo(msg.join_pos_offset);
+	msg.join_hgt_offset = st.join_alt_offset;
+
+	msg.join_count = st.join_count;
+	msg.stop_count = st.stop_count;
+	msg.heading_reset_count = st.heading_reset_count;
+	msg.pos_reset_count = st.pos_reset_count;
+	msg.hgt_reset_count = st.alt_reset_count;
+	msg.window_clear_count = st.window_clear_count;
+	msg.last_stop_reason = static_cast<uint8_t>(st.last_stop_reason);
+
+	msg.timestamp = _replay_mode ? timestamp : hrt_absolute_time();
+	_estimator_gnss_rejoin_pub.publish(msg);
+
+	_last_gnss_rejoin_published = st.time_us;
+	_last_gnss_rejoin_publish_time = hrt_absolute_time();
+}
+
 void EKF2::PublishGpsStatus(const hrt_abstime &timestamp)
 {
 	const hrt_abstime timestamp_sample = _ekf.get_gps_sample_delayed().time_us;

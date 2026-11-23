@@ -194,6 +194,7 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic_multi("estimator_event_flags", 10);
 	add_optional_topic_multi("estimator_optical_flow_vel", 200);
 	add_optional_topic_multi("estimator_fusion_control", 1000);
+	add_optional_topic_multi("estimator_gnss_rejoin", 100);
 	add_optional_topic_multi("estimator_sensor_bias", 1000);
 	add_optional_topic_multi("estimator_status", 200);
 	add_optional_topic_multi("estimator_status_flags", 10);

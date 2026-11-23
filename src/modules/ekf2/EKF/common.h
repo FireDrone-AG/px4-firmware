@@ -153,7 +153,7 @@ enum class GnssCtrl : uint8_t {
 enum class GnssMode : uint8_t {
 	kAuto           = 0,   	///< Reset on fusion timeout if no other source of position is available
 	kDeadReckoning = 1,  	///< Reset on fusion timeout if no source of velocity is availabl
-	kStrict         = 2   	///< As kAuto, but the full GNSS quality checks and health time also apply in flight
+	kStrict         = 2   	///< Full GNSS quality checks also in flight, GNSS only (re)joins through the consistency-checked rejoin
 };
 
 enum class RngCtrl : uint8_t {
@@ -373,6 +373,15 @@ struct parameters {
 	float ekf2_gps_p_gate{5.0f};            ///< GPS horizontal position innovation consistency gate size (STD)
 	float ekf2_gps_v_gate{5.0f};            ///< GPS velocity innovation consistency gate size (STD)
 
+	// GNSS rejoin (EKF2_GPS_MODE = Strict)
+	float ekf2_gps_rj_k{1.0f};              ///< consistency factor: window scatter must be <= K * reported accuracy (-)
+	float ekf2_gps_rj_ysd{2.0f};            ///< maximum heading uncertainty (1-sigma) to accept a heading for the rejoin (deg)
+	float ekf2_gps_rj_vmin{0.3f};           ///< minimum RMS horizontal speed over the window for the heading fit (m/s)
+	float ekf2_gps_rj_yrst{3.0f};           ///< heading correction above which the heading is reset at the rejoin (deg)
+	float ekf2_gps_rj_prst{0.2f};           ///< horizontal position offset above which the position is reset at the rejoin (m)
+	float ekf2_gps_rj_hrst{0.5f};           ///< altitude offset above which the altitude is reset at the rejoin (m)
+	float ekf2_gps_rj_tout{5.0f};           ///< time without fusion (rejection or no data) after which GNSS is stopped (s)
+
 	// these parameters control the strictness of GPS quality checks used to determine if the GPS is
 	// good enough to set a local origin and commence aiding
 	int32_t ekf2_gps_check{1045};             ///< bitmask used to control which GPS quality checks are used
@@ -476,6 +485,8 @@ struct parameters {
 	float ekf2_evv_gate{3.0f};              ///< vision velocity fusion innovation consistency gate size (STD)
 	float ekf2_evp_gate{5.0f};              ///< vision position fusion innovation consistency gate size (STD)
 	float ev_hgt_bias_nsd{0.13f};           ///< process noise for vision height bias estimation (m/s/sqrt(Hz))
+	float ev_pos_bias_nsd{0.13f};           ///< process noise for vision horizontal position bias estimation (m/s/sqrt(Hz))
+	int32_t ev_bias_boost{3};               ///< bitmask: process noise boost on persistent offset, bit 0: position bias, bit 1: height bias
 
 	Vector3f ev_pos_body{};                 ///< xyz position of VI-sensor focal point in body frame (m)
 #endif // CONFIG_EKF2_EXTERNAL_VISION
