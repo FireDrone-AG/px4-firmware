@@ -152,7 +152,8 @@ enum class GnssCtrl : uint8_t {
 
 enum class GnssMode : uint8_t {
 	kAuto           = 0,   	///< Reset on fusion timeout if no other source of position is available
-	kDeadReckoning = 1   	///< Reset on fusion timeout if no source of velocity is availabl
+	kDeadReckoning = 1,  	///< Reset on fusion timeout if no source of velocity is availabl
+	kStrict         = 2   	///< As kAuto, but the full GNSS quality checks and health time also apply in flight
 };
 
 enum class RngCtrl : uint8_t {

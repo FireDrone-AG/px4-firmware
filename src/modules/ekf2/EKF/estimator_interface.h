@@ -417,6 +417,7 @@ protected:
 			   _params.ekf2_req_fix,
 			   _params.ekf2_vel_lim,
 			   _min_gps_health_time_us,
+			   _params.ekf2_gps_mode,
 			   _control_status};
 
 # if defined(CONFIG_EKF2_GNSS_YAW)

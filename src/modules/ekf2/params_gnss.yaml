@@ -21,11 +21,17 @@ parameters:
       description:
         short: Fusion reset mode
         long: 'Automatic: reset on fusion timeout if no other source of position is available.
-          Dead-reckoning: reset on fusion timeout if no source of velocity is available.'
+          Dead-reckoning: reset on fusion timeout if no source of velocity is available.
+          Strict: as Automatic, but the GNSS quality checks selected by EKF2_GPS_CHECK
+          use the EKF2_REQ_* thresholds and the EKF2_REQ_GPS_H health time in flight
+          as well, instead of the relaxed in-flight checks. Any failed check rejects
+          GNSS until the checks have passed again for EKF2_REQ_GPS_H. The drift and
+          stationary speed checks are skipped in flight.'
       type: enum
       values:
         0: Automatic
         1: Dead-reckoning
+        2: Strict
       default: 0
     EKF2_GPS_P_NOISE:
       description:

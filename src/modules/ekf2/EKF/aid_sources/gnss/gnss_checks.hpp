@@ -45,8 +45,8 @@ class GnssChecks final
 public:
 	GnssChecks(int32_t &check_mask, int32_t &ekf2_req_nsats, float &ekf2_req_pdop, float &ekf2_req_eph, float &ekf2_req_epv,
 		   float &ekf2_req_sacc, float &ekf2_req_hdrift, float &ekf2_req_vdrift, int32_t &ekf2_req_fix, float &ekf2_vel_lim,
-		   uint32_t &min_health_time_us, filter_control_status_u &control_status):
-		_params{check_mask, ekf2_req_nsats, ekf2_req_pdop, ekf2_req_eph, ekf2_req_epv, ekf2_req_sacc, ekf2_req_hdrift, ekf2_req_vdrift, ekf2_req_fix, ekf2_vel_lim, min_health_time_us},
+		   uint32_t &min_health_time_us, int32_t &ekf2_gps_mode, filter_control_status_u &control_status):
+		_params{check_mask, ekf2_req_nsats, ekf2_req_pdop, ekf2_req_eph, ekf2_req_epv, ekf2_req_sacc, ekf2_req_hdrift, ekf2_req_vdrift, ekf2_req_fix, ekf2_vel_lim, min_health_time_us, ekf2_gps_mode},
 		_control_status(control_status)
 	{};
 
@@ -115,6 +115,9 @@ private:
 
 	bool isCheckEnabled(GnssChecksMask check) { return (_params.check_mask & static_cast<int32_t>(check)); }
 
+	// In strict mode the full checks and health time are also used in flight
+	bool isStrictInFlight() const { return _params.ekf2_gps_mode == static_cast<int32_t>(GnssMode::kStrict); }
+
 	bool runSimplifiedChecks(const gnssSample &gnss);
 	bool runInitialFixChecks(const gnssSample &gnss);
 	void runOnGroundGnssChecks(const gnssSample &gnss);
@@ -156,6 +159,7 @@ private:
 		const int32_t &ekf2_req_fix;
 		const float &ekf2_vel_lim;
 		const uint32_t &min_health_time_us;
+		const int32_t &ekf2_gps_mode;
 	};
 
 	const Params _params;

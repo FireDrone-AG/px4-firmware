@@ -54,7 +54,9 @@ bool GnssChecks::run(const gnssSample &gnss, uint64_t time_us)
 
 	_passed = false;
 
-	if (_initial_checks_passed) {
+	// Strict mode: keep using the full checks and health time in flight. The drift
+	// and stationary speed checks are skipped in flight by runOnGroundGnssChecks().
+	if (_initial_checks_passed && !isStrictInFlight()) {
 		if (runSimplifiedChecks(gnss)) {
 			_passed = isTimedOut(_time_last_fail_us, time_us, math::max((uint64_t)1e6, (uint64_t)_params.min_health_time_us / 10));
 

@@ -158,6 +158,11 @@ void EkfWrapper::setGnssDeadReckonMode()
 	_ekf_params->ekf2_gps_mode = static_cast<int32_t>(GnssMode::kDeadReckoning);
 }
 
+void EkfWrapper::setGnssStrictMode()
+{
+	_ekf_params->ekf2_gps_mode = static_cast<int32_t>(GnssMode::kStrict);
+}
+
 void EkfWrapper::enableGpsHeadingFusion()
 {
 	_ekf_params->ekf2_gps_ctrl |= static_cast<int32_t>(GnssCtrl::YAW);

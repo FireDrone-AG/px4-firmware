@@ -258,6 +258,7 @@ bool Ekf::isGnssVelResetAllowed() const
 
 	switch (static_cast<GnssMode>(_params.ekf2_gps_mode)) {
 	case GnssMode::kAuto:
+	case GnssMode::kStrict:
 		if (isOtherSourceOfHorizontalVelocityAidingThan(_control_status.flags.gnss_vel)
 		    && !_control_status.flags.wind_dead_reckoning) {
 			allowed = false;
@@ -286,6 +287,7 @@ bool Ekf::isGnssPosResetAllowed() const
 
 	switch (static_cast<GnssMode>(_params.ekf2_gps_mode)) {
 	case GnssMode::kAuto:
+	case GnssMode::kStrict:
 		if (isOtherSourceOfHorizontalPositionAidingThan(_control_status.flags.gnss_pos)) {
 			allowed = false;
 		}
